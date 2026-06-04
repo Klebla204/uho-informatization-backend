@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     "drf_spectacular",
     "channels",
     "apps.users",   # RBAC
+    "apps.rbac",
     "apps.example", # Ejemplo inicial
     "apps.students", 
     "apps.academics", 
@@ -103,13 +104,17 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 import os
-from pathlib import Path
 import dj_database_url
 
+# Build a safe default database URL for development if environment vars are not set.
+# Prefer a single DATABASE_URL env var if provided, otherwise compose from parts with sensible defaults.
+default_db_url = os.getenv(
+    'DATABASE_URL',
+    f"postgresql://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'postgres')}@{os.getenv('POSTGRES_HOST', '127.0.0.1')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'uho_db')}"
+)
+
 DATABASES = {
-    "default": dj_database_url.config(
-        default=f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
-    )
+    'default': dj_database_url.config(default=default_db_url)
 }
 
 
