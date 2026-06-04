@@ -1,0 +1,8 @@
+Django>=4.2,<6
+djangorestframework>=3.15
+dj-database-url>=1.0
+psycopg2-binary>=2.9
+channels>=4.0
+django-cors-headers>=4.0
+djangorestframework-simplejwt
+drf-spectacular>=0.29.0,<1.0
