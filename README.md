@@ -1,33 +1,103 @@
- # Development System for an Informatization Process for the University of Holguín (UHO)
+# Backend — Sistema de Informatización (UHO)
 
-Este sistema constituye una plataforma modular institucional diseñada para soportar los procesos clave de la Universidad de Holguín, incluyendo:
+Este documento describe la arquitectura, alcance y pasos prácticos para el backend del proyecto de informatización de la Universidad de Holguín (UHO).
 
-- Gestión de Estudiantes  
-- Procesos Académicos  
-- Recursos Humanos  
-- Gestión de Mantenimiento  
-- Proyectos de Investigación  
-- Analítica Universitaria  
-- Inteligencia Artificial aplicada a procesos educativos y administrativos  
+## Visión general
+El backend es una API REST construida con Django y Django REST Framework. Está organizado en apps modulares (students, academics, hr, maintenance, research, analytics, ai, etc.) y expone endpoints consumidos por el frontend.
 
-## Objetivo General
-Proveer una arquitectura escalable, segura y adaptable a la infraestructura universitaria cubana, permitiendo la informatización progresiva de los procesos institucionales.
+Objetivos principales:
+- Proveer API seguras y versionadas.
+- Soportar RBAC (control de acceso basado en roles) y auditoría de acciones.
+- Ser desplegable en Docker y escalable con PostgreSQL y MinIO.
 
-## Arquitectura
-El sistema está compuesto por:
+## Alcance
+Incluye:
+- Gestión de usuarios y roles (RBAC).
+- Módulos para estudiantes, académicos, RRHH, mantenimiento, investigación y analítica.
+- Integración con sistemas de almacenamiento de objetos (MinIO) y servicios AI (APIs internas/external).
 
-- **Backend Django REST Framework**
-- **Frontend React + Vite + Tailwind**
-- **Base de datos PostgreSQL**
-- **MinIO para almacenamiento**
-- **Docker para despliegue**
-- **GitLab CI/CD para integración continua**
+No incluye (por ahora): integración con sistemas externos legacy específicos (se evaluará caso a caso).
 
-## Modularidad
-Cada módulo se implementa como una app independiente en Django y como una sección autónoma en el frontend React.
+## Diagrama de arquitectura (resumen)
+
+- Clientes (Web, Mobile)
+	-> Frontend (React/Vite) 
+	-> Comunicación por HTTPS a la API Django REST
+- Backend (Django)
+	- Apps modulares (cada dominio como una app)
+	- Autenticación: JWT (Simple JWT)
+	- Autorización: RBAC (apps.rbac)
+	- Auditoría: middleware que registra operaciones importantes
+	- Storage: MinIO (S3 compatible) para archivos y activos
+	- DB: PostgreSQL (producción), SQLite (temporal desarrollo)
+
+## RBAC — Resumen
+- Implementación en `apps.rbac` con modelos: Role, Permission, RolePermission, UserRole y RoleHierarchy.
+- Command para sembrar roles/permisos por defecto: `python manage.py seed_roles`.
+- Comando helper para aplicar migraciones + semilla: `python manage.py apply_rbac` (usa `makemigrations` y `migrate` para la app y luego ejecuta `seed_roles`).
 
 ## Seguridad
-El sistema utiliza JWT y RBAC (Role-Based Access Control) para garantizar la separación lógica de permisos institucionales.
+- Autenticación: JWT (djangorestframework-simplejwt).
+- Control de acceso: permisos asignados a roles; roles asignados a usuarios (posibilidad de alcance por recurso).
+- Recomendaciones: proteger `main` y `develop` en GitHub, requerir PR y checks antes de merge.
 
-## Auditoría y Backups
-Incluye middleware de auditoría y scripts automáticos de respaldo PostgreSQL.
+## Despliegue
+- En producción se recomienda usar Docker + docker-compose o Kubernetes, con servicios:
+	- Postgres (persistente)
+	- MinIO (persistente)
+	- Servicio web (Gunicorn/uvicorn detrás de Nginx)
+	- Redis (opcional, cache / Celery broker)
+
+## Desarrollo local (rápido)
+Requisitos: Python 3.11+, Docker (opcional) y Node.js para frontend.
+
+1) Crear y activar virtualenv (PowerShell):
+```powershell
+python -m venv .venv
+. .venv\Scripts\Activate.ps1
+```
+
+2) Instalar dependencias:
+```powershell
+pip install -r backend\requirements.txt
+```
+
+3) Para desarrollo rápido usar SQLite temporal (no afecta producción):
+```powershell
+$root = (Get-Location).Path -replace '\\','/'
+$env:DATABASE_URL = "sqlite:///$root/backend/db.sqlite3"
+python backend\manage.py makemigrations
+python backend\manage.py migrate
+```
+
+4) Crear migraciones y semilla RBAC (helper):
+```powershell
+python backend\manage.py apply_rbac
+# o si prefieres solo sembrar después de migraciones:
+python backend\manage.py seed_roles
+```
+
+5) Ejecutar servidor de desarrollo:
+```powershell
+python backend\manage.py runserver
+```
+
+Si prefieres usar Docker (recomendado para replicar producción):
+```powershell
+# ejemplo rápido (necesita un docker-compose.yml apropiado)
+docker compose up -d
+```
+
+## CI / QA
+- El repo contiene una GitHub Action (`.github/workflows/ci.yml`) que corre tests del backend usando una imagen de Postgres en Actions. Revisa y adapta el workflow si cambias versiones de Python/Postgres.
+
+## Contribuir
+- Sigue el flujo Git: `feature/*` -> `develop` -> `main`.
+- Usa PRs y asigna reviewers. Añade tests y actualiza documentación.
+
+## Contacto / Mantenimiento
+- Mantener actualizadas las dependencias en `backend/requirements.txt`.
+- Documentar cambios de esquema (migraciones) y política de retención de datos.
+
+---
+Este README debe usarse como documento de arquitectura y alcance inicial del backend; se sugiere mantenerlo sincronizado con la documentación formal del proyecto.
