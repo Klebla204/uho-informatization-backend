@@ -125,5 +125,28 @@ Notas:
 - Mantener actualizadas las dependencias en `backend/requirements.txt`.
 - Documentar cambios de esquema (migraciones) y política de retención de datos.
 
+## Roadmap
+
+A continuación hay un mapa de ruta (roadmap) con la lista de verificación de los módulos lógicos pendientes que estructurarán el trabajo. Marca cada ítem cuando esté completamente implementado (modelos, migraciones, endpoints, tests y documentación).
+
+- [ ] users — Gestión avanzada de usuarios (perfiles extendidos, importación masiva, recuperación de contraseñas)
+- [x] rbac — Roles y permisos (migraciones aplicadas, semilla disponible)
+- [ ] students — CRUD completo, importación de matrículas, validaciones académicas
+- [ ] academics — Gestión de cursos, asignaturas, horarios y programas
+- [ ] hr — Gestión de personal, contratos, permisos y nóminas
+- [ ] maintenance — Gestión de incidencias y solicitudes de mantenimiento
+- [ ] research — Registro de proyectos, financiamiento y publicaciones
+- [ ] analytics — Dashboards y endpoints para agregaciones y KPIs
+- [ ] ai — Integraciones experimentales con servicios AI (p.ej. resumen de documentos)
+- [ ] storage — Integración completa con MinIO (políticas, backups y lifecycle)
+- [ ] ci-cd — Pipelines completas para tests, linting y despliegue en staging/prod
+- [ ] dockerization — Composables y documentación para despliegue reproducible
+- [ ] backups & migrations — Estrategia de backups, migraciones seguras y restauración
+
+Notas:
+- Cada módulo debe incluir: modelos, migraciones, API endpoints, permisos RBAC, tests unitarios/integración y documentación de uso.
+- Prioridad inicial: `users`, `rbac` (completado), `students` y `academics`.
+- Propuesta de milestones: Sprint 1 (users + rbac + students básico), Sprint 2 (academics + hr), Sprint 3 (maintenance + research + analytics), Sprint 4 (ai + storage + hardening).
+
 ---
 Este README debe usarse como documento de arquitectura y alcance inicial del backend; se sugiere mantenerlo sincronizado con la documentación formal del proyecto.
