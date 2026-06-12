@@ -1,4 +1,3 @@
-
 """
 Development System for an Informatization Process for the University of Holguín (UHO)
 
@@ -20,13 +19,23 @@ Este archivo define la configuración base del backend, incluyendo:
 - Configuración de DRF y Swagger
 """
 from pathlib import Path
+import os
+
+# Load .env for local development (optional). If you don't have python-dotenv installed
+# this will be a no-op; we add it to requirements.txt below.
+try:
+    from dotenv import load_dotenv
+    load_dotenv(os.path.join(Path(__file__).resolve().parent.parent, '.env'))
+except Exception:
+    # If python-dotenv isn't available just continue; env vars can be set in the OS.
+    pass
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-02@*jeg5976utl5_1j(w421rrh1^*!-c%dc-gl0gyp@_ar^aw3'
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-02@*jeg5976utl5_1j(w421rrh1^*!-c%dc-gl0gyp@_ar^aw3')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -103,7 +112,6 @@ WSGI_APPLICATION = 'core.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-import os
 import dj_database_url
 
 # Build a safe default database URL for development if environment vars are not set.
@@ -161,3 +169,9 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
+
+
+
+

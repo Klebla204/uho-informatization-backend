@@ -88,6 +88,32 @@ Si prefieres usar Docker (recomendado para replicar producción):
 docker compose up -d
 ```
 
+## Migrar de SQLite a PostgreSQL (script)
+
+Se incluye un helper PowerShell para automatizar la creación de la base de datos/usuario en Postgres,
+volcar los datos desde SQLite y ejecutar migraciones: `scripts/migrate_sqlite_to_postgres.ps1`.
+
+Uso recomendado (desde `backend` con el virtualenv activado):
+
+PowerShell:
+
+```powershell
+# Ejecuta el script (te puede pedir la contraseña del superusuario postgres)
+.\scripts\migrate_sqlite_to_postgres.ps1 -PgSuperUser postgres
+
+# Si necesitas pasar la contraseña del superuser (temporalmente) para llamadas psql:
+.\scripts\migrate_sqlite_to_postgres.ps1 -PgSuperUser postgres -PgSuperPassword 'TuPassword'
+```
+
+El script crea el usuario/BD (si no existen), realiza `dumpdata` desde la SQLite actual,
+aplica `migrate` en Postgres y luego `loaddata`.
+
+Notas:
+- Haz un backup del archivo `db.sqlite3` antes de ejecutar el script.
+- Si `loaddata` falla por dependencias complejas, prueba exportar y cargar app por app.
+- Para migraciones grandes o si deseas conservar tipos/constraints exactamente como en producción,
+  considera usar `pgloader` desde WSL o una herramienta ETL especializada.
+
 ## CI / QA
 - El repo contiene una GitHub Action (`.github/workflows/ci.yml`) que corre tests del backend usando una imagen de Postgres en Actions. Revisa y adapta el workflow si cambias versiones de Python/Postgres.
 
