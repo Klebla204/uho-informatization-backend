@@ -1,6 +1,6 @@
-# Backend — Sistema de Informatización (UHO)
+# Backend — Sistema de Gestion de Préstamos Bibliotecarios (BiblioUHO)
 
-Este documento describe la arquitectura, alcance y pasos prácticos para el backend del proyecto de informatización de la Universidad de Holguín (UHO).
+Este documento describe la arquitectura, alcance y pasos prácticos para el backend del proyecto de informatización de la gestion de prestamos bibliotecarios en la Universidad de Holguín (UHO).
 
 ## Visión general
 El backend es una API REST construida con Django y Django REST Framework. Está organizado en apps modulares (students, academics, hr, maintenance, research, analytics, ai, etc.) y expone endpoints consumidos por el frontend.
@@ -29,7 +29,7 @@ No incluye (por ahora): integración con sistemas externos legacy específicos (
 	- Autorización: RBAC (apps.rbac)
 	- Auditoría: middleware que registra operaciones importantes
 	- Storage: MinIO (S3 compatible) para archivos y activos
-	- DB: PostgreSQL (producción), SQLite (temporal desarrollo)
+	- DB: PostgreSQL (producción)
 
 ## RBAC — Resumen
 - Implementación en `apps.rbac` con modelos: Role, Permission, RolePermission, UserRole y RoleHierarchy.
@@ -125,28 +125,59 @@ Notas:
 - Mantener actualizadas las dependencias en `backend/requirements.txt`.
 - Documentar cambios de esquema (migraciones) y política de retención de datos.
 
-## Roadmap
+## ⚙️ Roadmap Backend – BiblioUHO
 
-A continuación hay un mapa de ruta (roadmap) con la lista de verificación de los módulos lógicos pendientes que estructurarán el trabajo. Marca cada ítem cuando esté completamente implementado (modelos, migraciones, endpoints, tests y documentación).
+## 🚀 Fase 1: Configuración Inicial
+- [ ] **[Stack tecnológico](ca://s?q=Definir_Stack_Tecnológico)** – configuración de entorno con Node.js/NestJS o Django, PostgreSQL y Docker Compose  
+- [ ] **[Estructura de capas](ca://s?q=Diseñar_Estructura_de_Capas)** – separación en controladores, servicios, repositorios y modelos  
+- [ ] **[Autenticación institucional](ca://s?q=Implementar_Autenticación_Institucional)** – integración con auth.uho.edu.cu vía OAuth2/LDAP  
+- [ ] **[Gestión de roles y permisos](ca://s?q=Construir_Gestión_de_Roles_y_Permisos)** – control granular de accesos por módulo  
 
-- [ ] users — Gestión avanzada de usuarios (perfiles extendidos, importación masiva, recuperación de contraseñas)
-- [x] rbac — Roles y permisos (migraciones aplicadas, semilla disponible)
-- [ ] students — CRUD completo, importación de matrículas, validaciones académicas
-- [ ] academics — Gestión de cursos, asignaturas, horarios y programas
-- [ ] hr — Gestión de personal, contratos, permisos y nóminas
-- [ ] maintenance — Gestión de incidencias y solicitudes de mantenimiento
-- [ ] research — Registro de proyectos, financiamiento y publicaciones
-- [ ] analytics — Dashboards y endpoints para agregaciones y KPIs
-- [ ] ai — Integraciones experimentales con servicios AI (p.ej. resumen de documentos)
-- [ ] storage — Integración completa con MinIO (políticas, backups y lifecycle)
-- [ ] ci-cd — Pipelines completas para tests, linting y despliegue en staging/prod
-- [ ] dockerization — Composables y documentación para despliegue reproducible
-- [ ] backups & migrations — Estrategia de backups, migraciones seguras y restauración
+
+
+## 📚 Fase 2: Gestión de Datos
+- [ ] **[Modelo de datos](ca://s?q=Construir_Modelo_de_Datos)** – entidades usuarios, préstamos, catálogo, perfiles de estudiante/trabajador  
+- [ ] **[CRUD de catálogo](ca://s?q=Implementar_CRUD_de_Catálogo)** – títulos, ejemplares, autores, editoriales, categorías  
+- [ ] **[Nomencladores CRUD](ca://s?q=Desarrollar_Nomencladores_CRUD)** – facultades, carreras, tipos de curso, cargos, bibliotecas  
+- [ ] **[Importación Excel](ca://s?q=Implementar_Importación_Excel_Backend)** – validación de datos, reporte de errores y actualización masiva  
+
+
+
+## 🔑 Fase 3: Gestión de Préstamos
+- [ ] **[Solicitud en línea](ca://s?q=Construir_Solicitud_en_Línea_Backend)** – verificación de disponibilidad y estado “Pendiente”  
+- [ ] **[Préstamo presencial](ca://s?q=Implementar_Préstamo_Presencial_Backend)** – registro directo por bibliotecario con carnet QR  
+- [ ] **[Renovación de préstamo](ca://s?q=Desarrollar_Renovación_de_Préstamo_Backend)** – validación de reservas pendientes antes de aprobar  
+- [ ] **[Lista de espera](ca://s?q=Construir_Lista_de_Espera_Backend)** – notificación automática al primer usuario cuando se libera un ejemplar  
+- [ ] **[Multas y sanciones](ca://s?q=Implementar_Multas_y_Sanciones)** – bloqueo temporal de solicitudes por préstamos vencidos  
+
+
+## 📡 Fase 4: Interoperabilidad y API
+- [ ] **[API REST](ca://s?q=Construir_API_REST_Backend)** – endpoints para catálogo, disponibilidad y estado de préstamos (JWT)  
+- [ ] **[Documentación OpenAPI](ca://s?q=Generar_Documentación_OpenAPI)** – especificación 3.0 para consumo externo  
+- [ ] **[Integración con SIGENU](ca://s?q=Integrar_SIGENU_Backend)** – sincronización de datos académicos de estudiantes  
+- [ ] **[Integración con ASSET](ca://s?q=Integrar_ASSET_Backend)** – sincronización de datos laborales de trabajadores  
+- [ ] **[Panel multibiblioteca](ca://s?q=Construir_Panel_Multibiblioteca_Backend)** – gestión consolidada de las cuatro bibliotecas  
+
+
+## 🛡️ Fase 5: Seguridad y Auditoría
+- [ ] **[Logs de auditoría](ca://s?q=Implementar_Logs_de_Auditoría)** – registro de acciones con timestamp, usuario, entidad e IP  
+- [ ] **[Protección OWASP](ca://s?q=Aplicar_Protecciones_OWASP)** – CSRF, XSS, SQL Injection, validación de entradas  
+- [ ] **[Cifrado de datos sensibles](ca://s?q=Implementar_Cifrado_de_Datos)** – almacenamiento seguro de CI y teléfono  
+- [ ] **[TLS/HTTPS](ca://s?q=Configurar_TLS_y_HTTPS)** – comunicación cifrada con certificados válidos  
+
+
+
+## 📊 Fase 6: Reportes y Optimización
+- [ ] **[Reportes y estadísticas](ca://s?q=Generar_Reportes_Backend)** – préstamos por período, biblioteca, usuarios destacados, vencidos  
+- [ ] **[Exportación PDF/Excel](ca://s?q=Implementar_Exportación_PDF_Excel)** – generación de reportes descargables  
+- [ ] **[Performance](ca://s?q=Optimizar_Performance_Backend)** – consultas rápidas y escalabilidad para nuevas bibliotecas  
+- [ ] **[Cobertura de tests](ca://s?q=Implementar_Tests_Backend)** – mínimo 60% de cobertura en pruebas unitarias e integración  
+- [ ] **[Mantenibilidad](ca://s?q=Mejorar_Mantenibilidad_Backend)** – estándares de codificación y documentación técnica actualizada
 
 Notas:
 - Cada módulo debe incluir: modelos, migraciones, API endpoints, permisos RBAC, tests unitarios/integración y documentación de uso.
 - Prioridad inicial: `users`, `rbac` (completado), `students` y `academics`.
 - Propuesta de milestones: Sprint 1 (users + rbac + students básico), Sprint 2 (academics + hr), Sprint 3 (maintenance + research + analytics), Sprint 4 (ai + storage + hardening).
 
----
+
 Este README debe usarse como documento de arquitectura y alcance inicial del backend; se sugiere mantenerlo sincronizado con la documentación formal del proyecto.
