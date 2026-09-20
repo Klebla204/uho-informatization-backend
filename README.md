@@ -128,18 +128,18 @@ Notas:
 ## ⚙️ Roadmap Backend – BiblioUHO
 
 ## 🚀 Fase 1: Configuración Inicial
-- [ ] **[Stack tecnológico](ca://s?q=Definir_Stack_Tecnológico)** – configuración de entorno con Node.js/NestJS o Django, PostgreSQL y Docker Compose  
-- [ ] **[Estructura de capas](ca://s?q=Diseñar_Estructura_de_Capas)** – separación en controladores, servicios, repositorios y modelos  
+- [x] **[Stack tecnológico](ca://s?q=Definir_Stack_Tecnológico)** – Django + Django REST Framework, SQLite para desarrollo local, PostgreSQL preparado para producción y Docker Compose configurado como despliegue opcional
+- [x] **[Estructura de capas](ca://s?q=Diseñar_Estructura_de_Capas)** – separación en controladores, servicios, repositorios y modelos
 - [ ] **[Autenticación institucional](ca://s?q=Implementar_Autenticación_Institucional)** – integración con auth.uho.edu.cu vía OAuth2/LDAP  
-- [ ] **[Gestión de roles y permisos](ca://s?q=Construir_Gestión_de_Roles_y_Permisos)** – control granular de accesos por módulo  
+- [x] **[Gestión de roles y permisos](ca://s?q=Construir_Gestión_de_Roles_y_Permisos)** – control granular de accesos por módulo
 
 
 
 ## 📚 Fase 2: Gestión de Datos
-- [ ] **[Modelo de datos](ca://s?q=Construir_Modelo_de_Datos)** – entidades usuarios, préstamos, catálogo, perfiles de estudiante/trabajador  
-- [ ] **[CRUD de catálogo](ca://s?q=Implementar_CRUD_de_Catálogo)** – títulos, ejemplares, autores, editoriales, categorías  
-- [ ] **[Nomencladores CRUD](ca://s?q=Desarrollar_Nomencladores_CRUD)** – facultades, carreras, tipos de curso, cargos, bibliotecas  
-- [ ] **[Importación Excel](ca://s?q=Implementar_Importación_Excel_Backend)** – validación de datos, reporte de errores y actualización masiva  
+- [x] **[Modelo de datos](ca://s?q=Construir_Modelo_de_Datos)** – entidades usuarios, préstamos, catálogo, perfiles de estudiante/trabajador
+- [x] **[CRUD de catálogo](ca://s?q=Implementar_CRUD_de_Catálogo)** – títulos, ejemplares, autores, editoriales, categorías
+- [x] **[Nomencladores CRUD](ca://s?q=Desarrollar_Nomencladores_CRUD)** – facultades, carreras, tipos de curso, cargos, bibliotecas
+- [x] **[Importación Excel](ca://s?q=Implementar_Importación_Excel_Backend)** – validación de datos, reporte de errores y actualización masiva
 
 
 
@@ -152,17 +152,17 @@ Notas:
 
 
 ## 📡 Fase 4: Interoperabilidad y API
-- [ ] **[API REST](ca://s?q=Construir_API_REST_Backend)** – endpoints para catálogo, disponibilidad y estado de préstamos (JWT)  
-- [ ] **[Documentación OpenAPI](ca://s?q=Generar_Documentación_OpenAPI)** – especificación 3.0 para consumo externo  
+- [x] **[API REST](ca://s?q=Construir_API_REST_Backend)** – endpoints para catálogo, disponibilidad y CRUD protegido con JWT
+- [x] **[Documentación OpenAPI](ca://s?q=Generar_Documentación_OpenAPI)** – especificación 3.0 para consumo externo
 - [ ] **[Integración con SIGENU](ca://s?q=Integrar_SIGENU_Backend)** – sincronización de datos académicos de estudiantes  
 - [ ] **[Integración con ASSET](ca://s?q=Integrar_ASSET_Backend)** – sincronización de datos laborales de trabajadores  
 - [ ] **[Panel multibiblioteca](ca://s?q=Construir_Panel_Multibiblioteca_Backend)** – gestión consolidada de las cuatro bibliotecas  
 
 
 ## 🛡️ Fase 5: Seguridad y Auditoría
-- [ ] **[Logs de auditoría](ca://s?q=Implementar_Logs_de_Auditoría)** – registro de acciones con timestamp, usuario, entidad e IP  
+- [x] **[Logs de auditoría](ca://s?q=Implementar_Logs_de_Auditoría)** – registro de acciones con timestamp, usuario, entidad e IP
 - [ ] **[Protección OWASP](ca://s?q=Aplicar_Protecciones_OWASP)** – CSRF, XSS, SQL Injection, validación de entradas  
-- [ ] **[Cifrado de datos sensibles](ca://s?q=Implementar_Cifrado_de_Datos)** – almacenamiento seguro de CI y teléfono  
+- [x] **[Cifrado de datos sensibles](ca://s?q=Implementar_Cifrado_de_Datos)** – almacenamiento cifrado de CI y teléfono
 - [ ] **[TLS/HTTPS](ca://s?q=Configurar_TLS_y_HTTPS)** – comunicación cifrada con certificados válidos  
 
 
@@ -171,8 +171,8 @@ Notas:
 - [ ] **[Reportes y estadísticas](ca://s?q=Generar_Reportes_Backend)** – préstamos por período, biblioteca, usuarios destacados, vencidos  
 - [ ] **[Exportación PDF/Excel](ca://s?q=Implementar_Exportación_PDF_Excel)** – generación de reportes descargables  
 - [ ] **[Performance](ca://s?q=Optimizar_Performance_Backend)** – consultas rápidas y escalabilidad para nuevas bibliotecas  
-- [ ] **[Cobertura de tests](ca://s?q=Implementar_Tests_Backend)** – mínimo 60% de cobertura en pruebas unitarias e integración  
-- [ ] **[Mantenibilidad](ca://s?q=Mejorar_Mantenibilidad_Backend)** – estándares de codificación y documentación técnica actualizada
+- [x] **[Cobertura de tests](ca://s?q=Implementar_Tests_Backend)** – suite de pruebas unitarias e integración para los módulos implementados
+- [x] **[Mantenibilidad](ca://s?q=Mejorar_Mantenibilidad_Backend)** – estándares de codificación y documentación técnica actualizada
 
 Notas:
 - Cada módulo debe incluir: modelos, migraciones, API endpoints, permisos RBAC, tests unitarios/integración y documentación de uso.
