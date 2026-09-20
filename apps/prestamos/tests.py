@@ -2,6 +2,8 @@ from datetime import timedelta
 
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APITestCase
 from django.utils import timezone
 
 from apps.catalogo.models import Autor, Biblioteca, Categoria, Editorial, Ejemplar, Libro
@@ -79,3 +81,63 @@ class LoanModelTests(TestCase):
         self.assertEqual(waiting.libro, self.book)
         self.assertFalse(notification.leida)
         self.assertTrue(card.activo)
+
+
+class OnlineLoanRequestApiTests(APITestCase):
+    def setUp(self):
+        self.user = CustomUser.objects.create_user(
+            auth_uid="api-borrower",
+            email="api-borrower@example.com",
+            nombre="Ana",
+            apellidos="Perez",
+            ci="01020304062",
+            tipo_usuario="ESTUDIANTE",
+        )
+        librarian = CustomUser.objects.create_user(
+            auth_uid="api-librarian",
+            email="api-librarian@example.com",
+            nombre="Marta",
+            apellidos="Diaz",
+            ci="01020304063",
+            tipo_usuario="BIBLIOTECARIO",
+        )
+        self.library = Biblioteca.objects.create(nombre="Central", direccion="Calle 1", responsable=librarian)
+        publisher = Editorial.objects.create(nombre="Editorial UHO")
+        self.book = Libro.objects.create(titulo="Libro solicitado", editorial=publisher)
+        self.copy = Ejemplar.objects.create(
+            libro=self.book,
+            biblioteca=self.library,
+            codigo_ejemplar="LOAN-001",
+        )
+
+    def test_authenticated_user_can_request_available_book(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            reverse("loan_request"),
+            {
+                "libro": str(self.book.id),
+                "biblioteca": str(self.library.id),
+                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["estado"], "PENDIENTE")
+        self.assertIsNone(response.json()["bibliotecario"])
+
+    def test_request_returns_conflict_when_no_copy_is_available(self):
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("loan_request"),
+            {
+                "libro": str(self.book.id),
+                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)

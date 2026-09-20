@@ -24,6 +24,8 @@ class Prestamo(models.Model):
     bibliotecario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="prestamos_gestionados",
     )
     fecha_solicitud = models.DateTimeField(auto_now_add=True)
