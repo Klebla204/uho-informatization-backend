@@ -3,22 +3,33 @@ from apps.rbac.models import Role, Permission, RolePermission
 
 
 DEFAULT_ROLES = [
-    {'name': 'admin', 'display_name': 'Administrator', 'is_system': True},
-    {'name': 'editor', 'display_name': 'Editor', 'is_system': True},
-    {'name': 'viewer', 'display_name': 'Viewer', 'is_system': True},
+    {'name': 'visitante', 'display_name': 'Visitante', 'is_system': True},
+    {'name': 'estudiante', 'display_name': 'Estudiante', 'is_system': True},
+    {'name': 'trabajador', 'display_name': 'Trabajador', 'is_system': True},
+    {'name': 'bibliotecario', 'display_name': 'Bibliotecario', 'is_system': True},
+    {'name': 'administrador_biblioteca', 'display_name': 'Administrador de Biblioteca', 'is_system': True},
+    {'name': 'super_admin', 'display_name': 'Super-Admin', 'is_system': True},
 ]
 
 DEFAULT_PERMISSIONS = [
-    {'name': 'students.view', 'description': 'View students'},
-    {'name': 'students.edit', 'description': 'Edit students'},
-    {'name': 'courses.view', 'description': 'View courses'},
-    {'name': 'courses.edit', 'description': 'Edit courses'},
+    {'name': 'catalogo.view', 'description': 'Consultar catálogo'},
+    {'name': 'catalogo.manage', 'description': 'Gestionar catálogo y ejemplares'},
+    {'name': 'prestamos.request', 'description': 'Solicitar préstamos'},
+    {'name': 'prestamos.manage', 'description': 'Gestionar préstamos y devoluciones'},
+    {'name': 'reportes.view', 'description': 'Consultar reportes'},
+    {'name': 'admin.manage', 'description': 'Gestionar configuración institucional'},
 ]
 
 ROLE_PERMISSIONS = {
-    'admin': ['students.view', 'students.edit', 'courses.view', 'courses.edit'],
-    'editor': ['students.view', 'students.edit', 'courses.view', 'courses.edit'],
-    'viewer': ['students.view', 'courses.view'],
+    'visitante': ['catalogo.view'],
+    'estudiante': ['catalogo.view', 'prestamos.request'],
+    'trabajador': ['catalogo.view', 'prestamos.request'],
+    'bibliotecario': ['catalogo.view', 'catalogo.manage', 'prestamos.manage'],
+    'administrador_biblioteca': ['catalogo.view', 'catalogo.manage', 'prestamos.manage', 'reportes.view'],
+    'super_admin': [
+        'catalogo.view', 'catalogo.manage', 'prestamos.request',
+        'prestamos.manage', 'reportes.view', 'admin.manage',
+    ],
 }
 
 

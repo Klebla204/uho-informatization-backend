@@ -64,6 +64,7 @@ INSTALLED_APPS = [
     "apps.rbac",
     "apps.catalogo",
     "apps.prestamos",
+    "apps.auditoria",
     "apps.example", # Ejemplo inicial
     "apps.students", 
     "apps.academics", 
@@ -76,6 +77,7 @@ INSTALLED_APPS = [
 ]
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
+    "apps.auditoria.middleware.AuditLogMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
