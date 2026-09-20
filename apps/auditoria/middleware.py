@@ -10,6 +10,7 @@ class AuditLogMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
+        body = self._parse_json_body(request)
         response = self.get_response(request)
 
         if request.path.startswith(self.EXCLUDED_PATHS):
@@ -18,13 +19,6 @@ class AuditLogMiddleware:
         user = getattr(request, "user", None)
         if not user or not user.is_authenticated:
             user = None
-
-        body = None
-        if request.body:
-            try:
-                body = json.loads(request.body.decode("utf-8"))
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                body = None
 
         LogsAuditoria.objects.create(
             usuario=user,
@@ -36,6 +30,15 @@ class AuditLogMiddleware:
             datos_nuevos=body,
         )
         return response
+
+    @staticmethod
+    def _parse_json_body(request):
+        try:
+            if request.body:
+                return json.loads(request.body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return None
+        return None
 
     @staticmethod
     def _get_client_ip(request):
