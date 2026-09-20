@@ -9,5 +9,6 @@ urlpatterns = [
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema")),
+    path("api/v1/", include("apps.catalogo.urls")),
     path("api/example/", include("apps.example.urls")),
 ]

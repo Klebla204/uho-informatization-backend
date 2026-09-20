@@ -1,4 +1,6 @@
 from django.test import TestCase
+from django.urls import reverse
+from rest_framework.test import APITestCase
 
 from apps.users.models import CustomUser
 
@@ -64,3 +66,40 @@ class LibraryModelTests(TestCase):
         self.assertEqual(book.categorias.get(), category)
         self.assertEqual(book.ejemplares.get(), copy)
         self.assertEqual(copy.estado, "DISPONIBLE")
+
+
+class CatalogApiTests(APITestCase):
+    def setUp(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="api-librarian",
+            email="api-librarian@example.com",
+            nombre="Marta",
+            apellidos="Diaz",
+            ci="01020304054",
+            tipo_usuario="BIBLIOTECARIO",
+        )
+        library = Biblioteca.objects.create(nombre="Central", direccion="Calle 1", responsable=user)
+        publisher = Editorial.objects.create(nombre="Editorial UHO")
+        author = Autor.objects.create(nombre="Ana", apellidos="Gonzalez")
+        category = Categoria.objects.create(nombre="Ciencias")
+        self.book = Libro.objects.create(titulo="Ciencias para todos", editorial=publisher)
+        self.book.autores.add(author)
+        self.book.categorias.add(category)
+        Ejemplar.objects.create(libro=self.book, biblioteca=library, codigo_ejemplar="API-001")
+
+    def test_public_catalog_lists_available_book(self):
+        response = self.client.get(
+            reverse("libro_list"),
+            {"q": "ciencias", "disponibilidad": "disponible"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()[0]["titulo"], "Ciencias para todos")
+        self.assertEqual(response.json()[0]["ejemplares_disponibles"], 1)
+
+    def test_book_detail_includes_copies_and_is_public(self):
+        response = self.client.get(reverse("libro_detail", kwargs={"libro_id": self.book.id}))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], str(self.book.id))
+        self.assertEqual(len(response.json()["ejemplares"]), 1)
