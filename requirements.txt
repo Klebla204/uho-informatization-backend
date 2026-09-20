@@ -7,3 +7,4 @@ channels>=4.0
 django-cors-headers>=4.0
 djangorestframework-simplejwt
 drf-spectacular>=0.29.0,<1.0
+cryptography>=42.0

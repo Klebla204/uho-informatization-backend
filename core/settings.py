@@ -36,6 +36,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-02@*jeg5976utl5_1j(w421rrh1^*!-c%dc-gl0gyp@_ar^aw3')
+DATA_ENCRYPTION_KEY = os.getenv(
+    'DATA_ENCRYPTION_KEY',
+    'vroIazrLWyCTa3z0RPXuLvcxvniFpFIr5mP4ZlVkwk4=',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -58,6 +62,8 @@ INSTALLED_APPS = [
     "channels",
     "apps.users",   # RBAC
     "apps.rbac",
+    "apps.catalogo",
+    "apps.prestamos",
     "apps.example", # Ejemplo inicial
     "apps.students", 
     "apps.academics", 
@@ -115,16 +121,23 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 import dj_database_url
 
-# Build a safe default database URL for development if environment vars are not set.
-# Prefer a single DATABASE_URL env var if provided, otherwise compose from parts with sensible defaults.
-default_db_url = os.getenv(
-    'DATABASE_URL',
-    f"postgresql://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'postgres')}@{os.getenv('POSTGRES_HOST', '127.0.0.1')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DB', 'uho_db')}"
-)
 
-DATABASES = {
-    'default': dj_database_url.config(default=default_db_url)
-}
+# Default local development to SQLite so the app works without a Postgres service.
+# PostgreSQL is only used when explicitly enabled via USE_POSTGRES=true.
+use_postgres = os.getenv('USE_POSTGRES', '').strip().lower() in {'1', 'true', 'yes', 'on'}
+database_url = os.getenv('DATABASE_URL')
+
+if use_postgres and database_url:
+    DATABASES = {
+        'default': dj_database_url.config(default=database_url)
+    }
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 
 # Password validation
