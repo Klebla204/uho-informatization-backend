@@ -141,3 +141,47 @@ class OnlineLoanRequestApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 409)
+
+    def test_librarian_completes_loan_lifecycle(self):
+        self.client.force_authenticate(user=self.user)
+        request_response = self.client.post(
+            reverse("loan_request"),
+            {
+                "libro": str(self.book.id),
+                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            },
+            format="json",
+        )
+        loan_id = request_response.json()["id"]
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self.client.force_authenticate(user=librarian)
+
+        approve_response = self.client.post(
+            reverse("loan_approve", kwargs={"loan_id": loan_id}),
+            {"fecha_recogida_limite": (timezone.now() + timedelta(days=2)).isoformat()},
+            format="json",
+        )
+        self.assertEqual(approve_response.status_code, 200)
+        self.assertEqual(approve_response.json()["estado"], "LISTO")
+
+        collect_response = self.client.post(reverse("loan_collect", kwargs={"loan_id": loan_id}))
+        self.assertEqual(collect_response.status_code, 200)
+        self.assertEqual(collect_response.json()["estado"], "ACTIVO")
+        self.copy.refresh_from_db()
+        self.assertEqual(self.copy.estado, "PRESTADO")
+
+        return_response = self.client.post(reverse("loan_return", kwargs={"loan_id": loan_id}))
+        self.assertEqual(return_response.status_code, 200)
+        self.assertEqual(return_response.json()["estado"], "DEVUELTO")
+        self.copy.refresh_from_db()
+        self.assertEqual(self.copy.estado, "DISPONIBLE")
+
+    def test_student_cannot_manage_loan(self):
+        self.client.force_authenticate(user=self.user)
+        response = self.client.post(
+            reverse("loan_approve", kwargs={"loan_id": "00000000-0000-0000-0000-000000000000"}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
