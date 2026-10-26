@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from apps.rbac.drf_permissions import HasLoanManagementPermission
+
 from .librarian_serializers import (
     ApproveLoanSerializer,
     LoanActionResponseSerializer,
@@ -23,7 +25,7 @@ from .serializers import LoanResponseSerializer
 
 class LibrarianLoanActionView(APIView):
     authentication_classes = (JWTAuthentication,)
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, HasLoanManagementPermission)
 
     def _execute(self, action, request, loan_id, **kwargs):
         try:

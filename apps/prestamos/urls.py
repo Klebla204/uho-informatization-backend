@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import LoanRequestView
+from .list_views import MyLoansView, PendingLoansView
 from .librarian_views import (
     ApproveLoanView,
     CollectLoanView,
@@ -11,6 +12,8 @@ from .librarian_views import (
 
 
 urlpatterns = [
+    path("mis-prestamos/", MyLoansView.as_view(), name="my_loans"),
+    path("pendientes/", PendingLoansView.as_view(), name="pending_loans"),
     path("solicitar/", LoanRequestView.as_view(), name="loan_request"),
     path("<uuid:loan_id>/aprobar/", ApproveLoanView.as_view(), name="loan_approve"),
     path("<uuid:loan_id>/rechazar/", RejectLoanView.as_view(), name="loan_reject"),

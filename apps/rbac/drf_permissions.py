@@ -31,3 +31,19 @@ class HasCatalogPermission(BasePermission):
             permission__name=permission_name,
             allow=True,
         ).exists()
+
+
+class HasLoanManagementPermission(BasePermission):
+    message = "Se requiere el permiso prestamos.manage."
+
+    def has_permission(self, request, view):
+        user = request.user
+        if not user or not user.is_authenticated:
+            return False
+        if user.is_superuser:
+            return True
+        return RolePermission.objects.filter(
+            role__user_roles__user=user,
+            permission__name="prestamos.manage",
+            allow=True,
+        ).exists()

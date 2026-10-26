@@ -152,8 +152,10 @@ class OnlineLoanRequestApiTests(APITestCase):
             },
             format="json",
         )
+        self.assertEqual(request_response.status_code, 201)
         loan_id = request_response.json()["id"]
         librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian)
         self.client.force_authenticate(user=librarian)
 
         approve_response = self.client.post(
@@ -184,4 +186,73 @@ class OnlineLoanRequestApiTests(APITestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.status_code, 403)
+
+    def test_user_only_sees_own_loans_and_can_filter_by_status(self):
+        own_loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=10),
+            estado="PENDIENTE",
+        )
+        other_user = CustomUser.objects.create_user(
+            auth_uid="other-borrower",
+            email="other@example.com",
+            nombre="Other",
+            apellidos="Borrower",
+            ci="01020304064",
+            tipo_usuario="ESTUDIANTE",
+        )
+        other_copy = Ejemplar.objects.create(
+            libro=self.book,
+            biblioteca=self.library,
+            codigo_ejemplar="LOAN-002",
+        )
+        Prestamo.objects.create(
+            usuario=other_user,
+            ejemplar=other_copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=10),
+            estado="ACTIVO",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        all_response = self.client.get(reverse("my_loans"))
+        pending_response = self.client.get(reverse("my_loans"), {"estado": "PENDIENTE"})
+
+        self.assertEqual(all_response.status_code, 200)
+        self.assertEqual(len(all_response.json()), 1)
+        self.assertEqual(all_response.json()[0]["id"], str(own_loan.id))
+        self.assertEqual(len(pending_response.json()), 1)
+
+    def test_librarian_pending_queue_requires_rbac_permission(self):
+        loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=10),
+            estado="PENDIENTE",
+        )
+
+        self.client.force_authenticate(user=self.user)
+        denied = self.client.get(reverse("pending_loans"))
+        self.assertEqual(denied.status_code, 403)
+
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian)
+        self.client.force_authenticate(user=librarian)
+
+        allowed = self.client.get(reverse("pending_loans"))
+        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual([item["id"] for item in allowed.json()], [str(loan.id)])
+        self.assertEqual(allowed.json()[0]["usuario_nombre"], "Ana Perez")
+
+    @staticmethod
+    def _grant_librarian_permission(user):
+        from apps.rbac.models import Permission, Role, RolePermission, UserRole
+
+        role = Role.objects.create(name="test-bibliotecario", display_name="Bibliotecario")
+        permission = Permission.objects.create(name="prestamos.manage")
+        RolePermission.objects.create(role=role, permission=permission)
+        UserRole.objects.create(user=user, role=role)
