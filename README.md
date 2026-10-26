@@ -82,6 +82,25 @@ python backend\manage.py seed_roles
 python backend\manage.py runserver
 ```
 
+### Autenticación local temporal para desarrollo
+
+Mientras se reciben los datos de integración de `auth.uho.edu.cu`, se pueden probar endpoints protegidos usando cuentas de demostración. Esto **no crea un login HTTP**, no asigna contraseñas y no reemplaza OAuth2/OIDC institucional. Los comandos están bloqueados salvo que se cumplan simultáneamente `DEBUG=True`, `ENABLE_LOCAL_DEMO_AUTH=true` y SQLite.
+
+En PowerShell, desde `backend`:
+
+```powershell
+$env:DJANGO_DEBUG = "true"
+$env:ENABLE_LOCAL_DEMO_AUTH = "true"
+python manage.py migrate
+python manage.py seed_roles
+python manage.py crear_usuarios_demo
+python manage.py token_demo demo-estudiante
+```
+
+`token_demo` imprime tokens temporales para los perfiles `demo-estudiante`, `demo-trabajador` y `demo-bibliotecario`. Se usa el token de acceso como `Authorization: Bearer <token>`. Las cuentas están marcadas como demo y el comando no emite tokens para cuentas institucionales reales. No uses esta configuración con PostgreSQL, en despliegues compartidos ni con `DEBUG=False`.
+
+Para desactivar este mecanismo, elimina `ENABLE_LOCAL_DEMO_AUTH` del entorno. Cuando se implemente la integración institucional, se pueden borrar los perfiles demo con `CustomUser.objects.filter(es_usuario_demo=True).delete()` desde `python manage.py shell` y retirar los comandos de `apps/users/management/commands/` y el campo `es_usuario_demo` junto con su migración.
+
 Si prefieres usar Docker (recomendado para replicar producción):
 ```powershell
 # ejemplo rápido (necesita un docker-compose.yml apropiado)

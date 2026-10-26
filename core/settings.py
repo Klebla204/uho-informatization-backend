@@ -42,7 +42,7 @@ DATA_ENCRYPTION_KEY = os.getenv(
 )
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'true').strip().lower() in {'1', 'true', 'yes', 'on'}
 
 ALLOWED_HOSTS = []
 

@@ -4,16 +4,18 @@ from .models import LogsAuditoria
 
 
 class AuditLogMiddleware:
-    EXCLUDED_PATHS = ("/api/schema/", "/api/docs/", "/static/")
+    EXCLUDED_PATHS = ("/api/schema/", "/api/docs/", "/api/token/", "/static/")
+    SENSITIVE_KEYS = {"ci", "telefono", "phone", "password", "token", "access", "refresh", "secret", "authorization"}
 
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request):
-        body = self._parse_json_body(request)
+        excluded = request.path.startswith(self.EXCLUDED_PATHS)
+        body = None if excluded else self._parse_json_body(request)
         response = self.get_response(request)
 
-        if request.path.startswith(self.EXCLUDED_PATHS):
+        if excluded:
             return response
 
         user = getattr(request, "user", None)
@@ -35,10 +37,21 @@ class AuditLogMiddleware:
     def _parse_json_body(request):
         try:
             if request.body:
-                return json.loads(request.body.decode("utf-8"))
+                return AuditLogMiddleware._redact_sensitive(json.loads(request.body.decode("utf-8")))
         except (UnicodeDecodeError, json.JSONDecodeError):
             return None
         return None
+
+    @staticmethod
+    def _redact_sensitive(data):
+        if isinstance(data, dict):
+            return {
+                key: "[REDACTADO]" if key.lower() in AuditLogMiddleware.SENSITIVE_KEYS else AuditLogMiddleware._redact_sensitive(value)
+                for key, value in data.items()
+            }
+        if isinstance(data, list):
+            return [AuditLogMiddleware._redact_sensitive(value) for value in data]
+        return data
 
     @staticmethod
     def _get_client_ip(request):
