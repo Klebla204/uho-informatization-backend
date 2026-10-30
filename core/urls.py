@@ -7,7 +7,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 urlpatterns = [
-    path("", RedirectView.as_view(url=os.getenv("FRONTEND_LOGIN_URL", "http://localhost:5173/login.html"))),
+    path("", RedirectView.as_view(url=os.getenv("FRONTEND_HOME_URL", "http://localhost:5173/src/pages/catalogo.html"))),
     path("admin/", admin.site.urls),
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),

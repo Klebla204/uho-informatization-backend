@@ -86,6 +86,10 @@ python backend\manage.py runserver
 
 `POST /auth/login/` con `{"username", "password"}`: 1) se prueba un usuario local de Django; 2) si no es válido, se consulta `auth.uho.edu.cu` (variables `UHO_API_KEY`, `UHO_AUTH_URL`, `UHO_AUTH_ORIGIN`); 3) si la universidad autentica y la cuenta está activa, se crea la cuenta local (tipo de usuario según el proveedor) si no existe; 4) se responde con tokens JWT (`access`/`refresh`). Fallo: `401`.
 
+### Avisos de vencimiento
+
+`python manage.py notificar_vencimientos` crea (una sola vez por préstamo) la notificación in-app de "vence en 3 días o menos" y la de "préstamo vencido" (desde el día siguiente a la fecha pactada). Debe programarse a diario (cron o Programador de tareas). Además, cada usuario recibe sus avisos pendientes al consultar sus notificaciones.
+
 Si prefieres usar Docker (recomendado para replicar producción):
 ```powershell
 # ejemplo rápido (necesita un docker-compose.yml apropiado)

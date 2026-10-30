@@ -6,7 +6,9 @@ from django.urls import reverse
 from rest_framework.test import APITestCase
 from django.utils import timezone
 
+from apps.academics.models import Carrera, Facultad
 from apps.catalogo.models import Autor, Biblioteca, Categoria, Editorial, Ejemplar, Libro
+from apps.students.models import PerfilEstudiante
 from apps.users.models import CustomUser
 
 from .models import Carnet, ListaEspera, Notificacion, Prestamo
@@ -91,7 +93,13 @@ class OnlineLoanRequestApiTests(APITestCase):
             nombre="Ana",
             apellidos="Perez",
             ci="01020304062",
+            telefono="55512345",
             tipo_usuario="ESTUDIANTE",
+        )
+        faculty = Facultad.objects.create(nombre="Técnica", codigo="FT")
+        career = Carrera.objects.create(nombre="Informática", codigo="INF", facultad=faculty)
+        PerfilEstudiante.objects.create(
+            usuario=self.user, carrera=career, facultad=faculty, anio=2, tipo_curso="Diurno", matricula="M-API"
         )
         librarian = CustomUser.objects.create_user(
             auth_uid="api-librarian",
@@ -141,6 +149,38 @@ class OnlineLoanRequestApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 409)
+
+    def test_request_requires_complete_profile(self):
+        self.user.telefono = ""
+        self.user.save(update_fields=["telefono"])
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("loan_request"),
+            {
+                "libro": str(self.book.id),
+                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("perfil", response.json()["detail"])
+
+    def test_librarian_finds_user_by_qr_id_and_ci(self):
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        from apps.rbac.models import Role, UserRole
+        from django.core.management import call_command
+
+        call_command("seed_roles", verbosity=0)
+        UserRole.objects.create(user=librarian, role=Role.objects.get(name="bibliotecario"))
+        self.client.force_authenticate(user=librarian)
+
+        by_id = self.client.get(reverse("user_lookup"), {"q": str(self.user.id)}).json()
+        by_ci = self.client.get(reverse("user_lookup"), {"q": "01020304062"}).json()
+
+        self.assertEqual([u["auth_uid"] for u in by_id], ["api-borrower"])
+        self.assertEqual([u["auth_uid"] for u in by_ci], ["api-borrower"])
 
     def test_duplicate_request_for_same_book_is_rejected(self):
         Ejemplar.objects.create(libro=self.book, biblioteca=self.library, codigo_ejemplar="LOAN-002")
@@ -294,3 +334,81 @@ class OnlineLoanRequestApiTests(APITestCase):
         permission = Permission.objects.create(name="prestamos.manage")
         RolePermission.objects.create(role=role, permission=permission)
         UserRole.objects.create(user=user, role=role)
+
+
+class DueDateNotificationTests(APITestCase):
+    def setUp(self):
+        from django.core.management import call_command
+
+        from apps.rbac.models import Role, UserRole
+
+        self.user = CustomUser.objects.create_user(
+            auth_uid="due-user", email="due@example.com", nombre="Eva", apellidos="Rios",
+            ci="01020304071", telefono="55512345", tipo_usuario="TRABAJADOR",
+        )
+        self.librarian = CustomUser.objects.create_user(
+            auth_uid="due-librarian", email="dl@example.com", nombre="Luis", apellidos="Paz",
+            ci="01020304072", tipo_usuario="BIBLIOTECARIO",
+        )
+        call_command("seed_roles", verbosity=0)
+        UserRole.objects.create(user=self.librarian, role=Role.objects.get(name="bibliotecario"))
+        library = Biblioteca.objects.create(nombre="Central", direccion="Calle 1", responsable=self.librarian)
+        publisher = Editorial.objects.create(nombre="Editorial UHO")
+        self.book = Libro.objects.create(titulo="Libro con plazo", editorial=publisher)
+        self.library = library
+        self.counter = 0
+
+    def _loan(self, days):
+        self.counter += 1
+        copy = Ejemplar.objects.create(
+            libro=self.book, biblioteca=self.library, codigo_ejemplar=f"DUE-{self.counter}", estado="PRESTADO"
+        )
+        return Prestamo.objects.create(
+            usuario=self.user, ejemplar=copy, biblioteca=self.library, estado="ACTIVO",
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=days),
+        )
+
+    def test_notifies_three_days_before_and_day_after_due_once(self):
+        from .vencimientos import notify_due_loans
+
+        soon = self._loan(3)
+        late = self._loan(-1)
+        far = self._loan(10)
+
+        first = notify_due_loans()
+        second = notify_due_loans()
+
+        self.assertEqual(first, {"por_vencer": 1, "vencidos": 1})
+        self.assertEqual(second, {"por_vencer": 0, "vencidos": 0})
+        self.assertTrue(Notificacion.objects.filter(prestamo=soon, tipo="POR_VENCER", usuario=self.user).exists())
+        self.assertTrue(Notificacion.objects.filter(prestamo=late, tipo="VENCIDO", usuario=self.user).exists())
+        self.assertFalse(Notificacion.objects.filter(prestamo=far).exists())
+
+    def test_user_sees_and_marks_notifications_in_app(self):
+        self._loan(2)
+        self.client.force_authenticate(user=self.user)
+
+        listing = self.client.get(reverse("my_notifications")).json()
+        self.assertEqual(len(listing), 1)
+        self.assertFalse(listing[0]["leida"])
+
+        read = self.client.post(reverse("notification_read", kwargs={"notification_id": listing[0]["id"]}))
+        self.assertEqual(read.json()["actualizadas"], 1)
+        self.assertTrue(self.client.get(reverse("my_notifications")).json()[0]["leida"])
+
+    def test_librarian_sees_upcoming_and_overdue_loans(self):
+        soon = self._loan(2)
+        late = self._loan(-2)
+        self._loan(10)
+        self.client.force_authenticate(user=self.librarian)
+
+        data = self.client.get(reverse("due_loans")).json()
+
+        self.assertEqual([l["id"] for l in data["proximos"]], [str(soon.id)])
+        self.assertEqual([l["id"] for l in data["vencidos"]], [str(late.id)])
+        self.assertTrue(data["vencidos"][0]["vencido"])
+        self.assertEqual(data["proximos"][0]["dias_restantes"], 2)
+
+    def test_regular_user_cannot_see_due_loans_panel_data(self):
+        self.client.force_authenticate(user=self.user)
+        self.assertEqual(self.client.get(reverse("due_loans")).status_code, 403)

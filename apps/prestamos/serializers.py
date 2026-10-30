@@ -2,7 +2,15 @@ from rest_framework import serializers
 
 from apps.users.models import CustomUser
 
-from .models import Prestamo
+from .models import Notificacion, Prestamo
+from .vencimientos import days_until_due
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notificacion
+        fields = ("id", "tipo", "mensaje", "leida", "fecha_envio", "prestamo")
+        read_only_fields = fields
 
 
 class UserLookupSerializer(serializers.ModelSerializer):
@@ -39,6 +47,14 @@ class LoanListSerializer(serializers.ModelSerializer):
     libro_titulo = serializers.CharField(source="ejemplar.libro.titulo", read_only=True)
     codigo_ejemplar = serializers.CharField(source="ejemplar.codigo_ejemplar", read_only=True)
     biblioteca_nombre = serializers.CharField(source="biblioteca.nombre", read_only=True)
+    dias_restantes = serializers.SerializerMethodField()
+    vencido = serializers.SerializerMethodField()
+
+    def get_dias_restantes(self, loan) -> int | None:
+        return days_until_due(loan) if loan.estado == "ACTIVO" else None
+
+    def get_vencido(self, loan) -> bool:
+        return loan.estado == "ACTIVO" and days_until_due(loan) < 0
 
     class Meta:
         model = Prestamo
@@ -55,6 +71,8 @@ class LoanListSerializer(serializers.ModelSerializer):
             "fecha_devolucion_pactada",
             "fecha_devolucion_real",
             "estado",
+            "dias_restantes",
+            "vencido",
             "observaciones",
         )
 

@@ -10,3 +10,4 @@ djangorestframework-simplejwt
 drf-spectacular>=0.29.0,<1.0
 cryptography>=42.0
 openpyxl>=3.1
+reportlab>=4.0
