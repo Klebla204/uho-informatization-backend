@@ -6,9 +6,12 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.rbac.drf_permissions import HasLoanManagementPermission
+from apps.catalogo.models import Biblioteca
+from apps.users.models import CustomUser
 
 from .librarian_serializers import (
     ApproveLoanSerializer,
+    CounterLoanSerializer,
     LoanActionResponseSerializer,
     RejectLoanSerializer,
 )
@@ -21,6 +24,7 @@ from .librarian_services import (
     return_loan,
 )
 from .serializers import LoanResponseSerializer
+from .services import LoanRequestError, create_counter_loan
 
 
 class LibrarianLoanActionView(APIView):
@@ -71,3 +75,32 @@ class ReturnLoanView(LibrarianLoanActionView):
     @extend_schema(request=None, responses=LoanActionResponseSerializer)
     def post(self, request, loan_id):
         return self._execute(return_loan, request, loan_id)
+
+
+class CounterLoanView(APIView):
+    authentication_classes = (JWTAuthentication,)
+    permission_classes = (IsAuthenticated, HasLoanManagementPermission)
+
+    @extend_schema(request=CounterLoanSerializer, responses=LoanResponseSerializer)
+    def post(self, request):
+        serializer = CounterLoanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        user = CustomUser.objects.filter(id=data["usuario"], is_active=True, estado="ACTIVO").first()
+        library = Biblioteca.objects.filter(id=data["biblioteca"], activa=True).first()
+        if user is None:
+            return Response({"detail": "El usuario no existe o no está activo."}, status=status.HTTP_404_NOT_FOUND)
+        if library is None:
+            return Response({"detail": "La biblioteca no existe o está inactiva."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            loan = create_counter_loan(
+                user=user,
+                librarian=request.user,
+                book_id=data["libro"],
+                library_id=library.id,
+                due_date=data["fecha_devolucion_pactada"],
+                observations=data.get("observaciones", ""),
+            )
+        except LoanRequestError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_409_CONFLICT)
+        return Response(LoanResponseSerializer(loan).data, status=status.HTTP_201_CREATED)

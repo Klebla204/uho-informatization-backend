@@ -1,6 +1,18 @@
 from rest_framework import serializers
 
-from .models import Autor, Categoria, Editorial, Ejemplar, Libro
+from .models import Autor, Biblioteca, Categoria, Editorial, Ejemplar, Libro
+
+
+class BibliotecaPublicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Biblioteca
+        fields = ("id", "nombre", "facultad_asociada")
+
+
+class CategoriaPublicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Categoria
+        fields = ("id", "nombre", "categoria_padre")
 
 
 class AutorSerializer(serializers.ModelSerializer):
@@ -23,6 +35,14 @@ class EditorialSerializer(serializers.ModelSerializer):
 
 class EjemplarSerializer(serializers.ModelSerializer):
     biblioteca_nombre = serializers.CharField(source="biblioteca.nombre", read_only=True)
+    disponible = serializers.SerializerMethodField()
+
+    def get_disponible(self, copy) -> bool:
+        from apps.prestamos.models import Prestamo
+
+        return copy.estado == "DISPONIBLE" and not Prestamo.objects.filter(
+            ejemplar=copy, estado__in=["PENDIENTE", "APROBADO", "LISTO", "ACTIVO"]
+        ).exists()
 
     class Meta:
         model = Ejemplar
@@ -32,6 +52,7 @@ class EjemplarSerializer(serializers.ModelSerializer):
             "biblioteca_nombre",
             "codigo_ejemplar",
             "estado",
+            "disponible",
             "ubicacion_fisica",
         )
 

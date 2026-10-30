@@ -1,19 +1,23 @@
 from django.urls import path
 
 from .views import LoanRequestView
-from .list_views import MyLoansView, PendingLoansView
+from .list_views import ActiveLoansView, MyLoansView, PendingLoansView, UserLookupView
 from .librarian_views import (
     ApproveLoanView,
     CollectLoanView,
     MarkLoanReadyView,
     RejectLoanView,
     ReturnLoanView,
+    CounterLoanView,
 )
 
 
 urlpatterns = [
     path("mis-prestamos/", MyLoansView.as_view(), name="my_loans"),
     path("pendientes/", PendingLoansView.as_view(), name="pending_loans"),
+    path("en-curso/", ActiveLoansView.as_view(), name="active_loans"),
+    path("usuarios/", UserLookupView.as_view(), name="user_lookup"),
+    path("presencial/", CounterLoanView.as_view(), name="counter_loan"),
     path("solicitar/", LoanRequestView.as_view(), name="loan_request"),
     path("<uuid:loan_id>/aprobar/", ApproveLoanView.as_view(), name="loan_approve"),
     path("<uuid:loan_id>/rechazar/", RejectLoanView.as_view(), name="loan_reject"),

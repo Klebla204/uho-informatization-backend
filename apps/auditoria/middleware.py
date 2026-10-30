@@ -4,7 +4,7 @@ from .models import LogsAuditoria
 
 
 class AuditLogMiddleware:
-    EXCLUDED_PATHS = ("/api/schema/", "/api/docs/", "/api/token/", "/static/")
+    EXCLUDED_PATHS = ("/api/schema/", "/api/docs/", "/api/token/", "/auth/login/", "/static/")
     SENSITIVE_KEYS = {"ci", "telefono", "phone", "password", "token", "access", "refresh", "secret", "authorization"}
 
     def __init__(self, get_response):

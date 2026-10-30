@@ -142,6 +142,22 @@ class OnlineLoanRequestApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 409)
 
+    def test_duplicate_request_for_same_book_is_rejected(self):
+        Ejemplar.objects.create(libro=self.book, biblioteca=self.library, codigo_ejemplar="LOAN-002")
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "libro": str(self.book.id),
+            "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+        }
+
+        first = self.client.post(reverse("loan_request"), payload, format="json")
+        second = self.client.post(reverse("loan_request"), payload, format="json")
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 409)
+        self.assertIn("Ya solicitaste", second.json()["detail"])
+        self.assertEqual(self.user.prestamos.count(), 1)
+
     def test_librarian_completes_loan_lifecycle(self):
         self.client.force_authenticate(user=self.user)
         request_response = self.client.post(
@@ -247,6 +263,28 @@ class OnlineLoanRequestApiTests(APITestCase):
         self.assertEqual(allowed.status_code, 200)
         self.assertEqual([item["id"] for item in allowed.json()], [str(loan.id)])
         self.assertEqual(allowed.json()[0]["usuario_nombre"], "Ana Perez")
+
+    def test_librarian_can_register_counter_loan(self):
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian)
+        self.client.force_authenticate(user=librarian)
+
+        response = self.client.post(
+            reverse("counter_loan"),
+            {
+                "usuario": str(self.user.id),
+                "libro": str(self.book.id),
+                "biblioteca": str(self.library.id),
+                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["estado"], "ACTIVO")
+        self.assertEqual(response.json()["bibliotecario"], str(librarian.id))
+        self.copy.refresh_from_db()
+        self.assertEqual(self.copy.estado, "PRESTADO")
 
     @staticmethod
     def _grant_librarian_permission(user):

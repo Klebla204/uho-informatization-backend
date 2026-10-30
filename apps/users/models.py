@@ -74,7 +74,6 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     fecha_registro = models.DateTimeField(auto_now_add=True)
     is_staff = models.BooleanField(default=False)
     is_active = models.BooleanField(default=True)
-    es_usuario_demo = models.BooleanField(default=False, editable=False)
 
     objects = CustomUserManager()
 

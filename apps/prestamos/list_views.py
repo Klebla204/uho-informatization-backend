@@ -1,12 +1,14 @@
+from django.db.models import Q
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.rbac.drf_permissions import HasLoanManagementPermission
+from apps.users.models import CustomUser
 
 from .models import Prestamo
-from .serializers import LoanListSerializer, PendingLoanSerializer
+from .serializers import LoanListSerializer, PendingLoanSerializer, UserLookupSerializer
 
 
 class MyLoansView(ListAPIView):
@@ -41,3 +43,31 @@ class PendingLoansView(ListAPIView):
         if library_id:
             queryset = queryset.filter(biblioteca_id=library_id)
         return queryset
+
+
+class ActiveLoansView(ListAPIView):
+    authentication_classes = (JWTAuthentication,)
+    permission_classes = (IsAuthenticated, HasLoanManagementPermission)
+    serializer_class = PendingLoanSerializer
+
+    def get_queryset(self):
+        return Prestamo.objects.filter(
+            estado__in=["APROBADO", "LISTO", "ACTIVO", "VENCIDO"]
+        ).select_related("usuario", "ejemplar__libro", "biblioteca").order_by("fecha_devolucion_pactada")
+
+
+class UserLookupView(ListAPIView):
+    authentication_classes = (JWTAuthentication,)
+    permission_classes = (IsAuthenticated, HasLoanManagementPermission)
+    serializer_class = UserLookupSerializer
+
+    @extend_schema(parameters=[OpenApiParameter("q", str, description="Usuario, nombre o apellidos")])
+    def get_queryset(self):
+        term = self.request.query_params.get("q", "").strip()
+        if not term:
+            return CustomUser.objects.none()
+        return CustomUser.objects.filter(
+            Q(auth_uid__icontains=term) | Q(nombre__icontains=term) | Q(apellidos__icontains=term),
+            is_active=True,
+            estado="ACTIVO",
+        ).order_by("auth_uid")[:10]

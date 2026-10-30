@@ -1,6 +1,14 @@
 from rest_framework import serializers
 
+from apps.users.models import CustomUser
+
 from .models import Prestamo
+
+
+class UserLookupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CustomUser
+        fields = ("id", "auth_uid", "nombre", "apellidos", "tipo_usuario")
 
 
 class LoanRequestSerializer(serializers.Serializer):

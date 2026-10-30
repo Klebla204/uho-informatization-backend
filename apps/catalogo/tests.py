@@ -107,6 +107,24 @@ class CatalogApiTests(APITestCase):
         self.assertEqual(response.json()["id"], str(self.book.id))
         self.assertEqual(len(response.json()["ejemplares"]), 1)
 
+    def test_public_libraries_endpoint_lists_only_active_libraries(self):
+        librarian = Biblioteca.objects.get(nombre="Central").responsable
+        Biblioteca.objects.create(nombre="Inactiva", direccion="Calle 2", responsable=librarian, activa=False)
+
+        response = self.client.get(reverse("biblioteca_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["nombre"] for item in response.json()], ["Central"])
+
+    def test_public_categories_endpoint_lists_only_active_categories(self):
+        inactive = Categoria.objects.create(nombre="Inactiva", activa=False)
+
+        response = self.client.get(reverse("categoria_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([item["nombre"] for item in response.json()], ["Ciencias"])
+        self.assertNotIn(str(inactive.id), [item["id"] for item in response.json()])
+
     def test_catalog_crud_requires_catalog_manage_permission(self):
         user = CustomUser.objects.create_user(
             auth_uid="catalog-reader",

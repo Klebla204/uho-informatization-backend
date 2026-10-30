@@ -1,11 +1,6 @@
-import os
-from io import StringIO
-from unittest.mock import patch
-
-from django.core.management import call_command, CommandError
-from django.test import TestCase, override_settings
+﻿from django.test import TestCase
 from rest_framework.test import APIClient
-from rest_framework_simplejwt.tokens import AccessToken
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import CustomUser
 
@@ -34,54 +29,19 @@ class CustomUserModelTests(TestCase):
 		self.assertNotEqual(stored_ci, "01020304050")
 
 
-@override_settings(
-	DEBUG=True,
-	SECRET_KEY="temporary-test-signing-key-with-more-than-32-bytes",
-	DATABASES={"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": ":memory:"}},
-)
-class LocalDemoAuthTests(TestCase):
-	def test_demo_commands_are_disabled_without_explicit_opt_in(self):
-		with patch.dict(os.environ, {}, clear=True):
-			with self.assertRaises(CommandError):
-				call_command("crear_usuarios_demo", stdout=StringIO())
+class ProfileEndpointTests(TestCase):
+	def setUp(self):
+		self.user = CustomUser.objects.create_user(auth_uid='u1', email='u1@example.com', nombre='Ana', apellidos='Perez', ci='01020304050', tipo_usuario='ESTUDIANTE')
+		self.client = APIClient()
+		self.client.credentials(HTTP_AUTHORIZATION='Bearer ' + str(RefreshToken.for_user(self.user).access_token))
 
-	def test_demo_user_can_get_token_but_real_user_cannot(self):
-		with patch.dict(os.environ, {"ENABLE_LOCAL_DEMO_AUTH": "true"}):
-			call_command("seed_roles", stdout=StringIO())
-			call_command("crear_usuarios_demo", stdout=StringIO())
-			token_output = StringIO()
-			call_command("token_demo", "demo-estudiante", stdout=token_output)
-
-		token_line = next(line for line in token_output.getvalue().splitlines() if line.startswith("Bearer "))
-		access_token = token_line.removeprefix("Bearer ")
-		self.assertEqual(str(AccessToken(access_token)["user_id"]), str(CustomUser.objects.get(auth_uid="demo-estudiante").id))
-
-		client = APIClient()
-		client.credentials(HTTP_AUTHORIZATION=f"Bearer {access_token}")
-		response = client.get("/api/v1/libros/")
+	def test_profile_masks_ci_and_updates_phone(self):
+		response = self.client.get('/api/v1/usuarios/mi-perfil/')
 		self.assertEqual(response.status_code, 200)
+		self.assertNotIn('01020304050', response.content.decode())
+		response = self.client.patch('/api/v1/usuarios/mi-perfil/', {'telefono': '55512345'}, format='json')
+		self.assertEqual(response.json()['telefono'], '55512345')
 
-		real_user = CustomUser.objects.create_user(
-			auth_uid="real-institution-user",
-			email="real@example.com",
-			nombre="Real",
-			apellidos="User",
-			ci="01020304999",
-			tipo_usuario="ESTUDIANTE",
-		)
-		self.assertFalse(real_user.es_usuario_demo)
-		with patch.dict(os.environ, {"ENABLE_LOCAL_DEMO_AUTH": "true"}):
-			with self.assertRaises(CommandError):
-				call_command("token_demo", real_user.auth_uid, stdout=StringIO())
-
-	@override_settings(DEBUG=False)
-	def test_demo_commands_remain_blocked_when_debug_is_off(self):
-		with patch.dict(os.environ, {"ENABLE_LOCAL_DEMO_AUTH": "true"}):
-			with self.assertRaises(CommandError):
-				call_command("crear_usuarios_demo", stdout=StringIO())
-
-	@override_settings(DATABASES={"default": {"ENGINE": "django.db.backends.postgresql", "NAME": "test"}})
-	def test_demo_commands_remain_blocked_for_postgresql(self):
-		with patch.dict(os.environ, {"ENABLE_LOCAL_DEMO_AUTH": "true"}):
-			with self.assertRaises(CommandError):
-				call_command("crear_usuarios_demo", stdout=StringIO())
+	def test_card_requires_authentication(self):
+		self.assertEqual(self.client.get('/api/v1/usuarios/mi-carnet/').json()['codigo_qr'], str(self.user.id))
+		self.assertEqual(APIClient().get('/api/v1/usuarios/mi-carnet/').status_code, 401)
