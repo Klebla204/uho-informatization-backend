@@ -168,6 +168,52 @@ class CatalogApiTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["apellidos"], "Bibliotecario")
 
+    def test_deleting_book_archives_it_and_keeps_copies(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="catalog-archiver",
+            email="archiver@example.com",
+            nombre="Catalog",
+            apellidos="Archiver",
+            ci="01020304057",
+            tipo_usuario="BIBLIOTECARIO",
+        )
+        role = Role.objects.create(name="catalog-archiver", display_name="Catalog Archiver")
+        permission = Permission.objects.create(name="catalogo.manage")
+        RolePermission.objects.create(role=role, permission=permission)
+        UserRole.objects.create(user=user, role=role)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.delete(f"/api/v1/admin/catalogo/libros/{self.book.id}/")
+
+        self.assertEqual(response.status_code, 204)
+        self.book.refresh_from_db()
+        self.assertFalse(self.book.activo)
+        self.assertEqual(self.book.ejemplares.count(), 1)
+        self.assertEqual(self.client.get(reverse("libro_list")).json(), [])
+
+    def test_copy_crud_can_filter_by_book(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="copy-reader",
+            email="copy-reader@example.com",
+            nombre="Copy",
+            apellidos="Reader",
+            ci="01020304058",
+            tipo_usuario="BIBLIOTECARIO",
+        )
+        role = Role.objects.create(name="copy-reader", display_name="Copy Reader")
+        permission = Permission.objects.create(name="catalogo.view")
+        RolePermission.objects.create(role=role, permission=permission)
+        UserRole.objects.create(user=user, role=role)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get(
+            f"/api/v1/admin/catalogo/ejemplares/?libro={self.book.id}",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()), 1)
+        self.assertEqual(response.json()[0]["libro"], str(self.book.id))
+
     def test_collection_import_creates_book_and_exemplars(self):
         from apps.catalogo.import_services import import_collection
 

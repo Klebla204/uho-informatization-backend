@@ -44,7 +44,21 @@ class LibroCrudViewSet(CatalogCrudViewSet):
     queryset = Libro.objects.prefetch_related("autores", "categorias").select_related("editorial").order_by("titulo")
     serializer_class = LibroCrudSerializer
 
+    def perform_destroy(self, instance):
+        instance.activo = False
+        instance.save(update_fields=["activo"])
+
 
 class EjemplarCrudViewSet(CatalogCrudViewSet):
     queryset = Ejemplar.objects.select_related("libro", "biblioteca").order_by("codigo_ejemplar")
     serializer_class = EjemplarCrudSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        book_id = self.request.query_params.get("libro")
+        library_id = self.request.query_params.get("biblioteca")
+        if book_id:
+            queryset = queryset.filter(libro_id=book_id)
+        if library_id:
+            queryset = queryset.filter(biblioteca_id=library_id)
+        return queryset
