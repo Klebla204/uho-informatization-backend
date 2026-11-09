@@ -9,7 +9,7 @@ from .crud_views import (
     EjemplarCrudViewSet,
     LibroCrudViewSet,
 )
-from .import_views import CollectionImportView
+from .import_views import CollectionImportView, CollectionTemplateView
 
 
 router = DefaultRouter()
@@ -21,5 +21,6 @@ router.register("libros", LibroCrudViewSet, basename="admin-libro")
 router.register("ejemplares", EjemplarCrudViewSet, basename="admin-ejemplar")
 
 urlpatterns = [
+    path("plantilla/", CollectionTemplateView.as_view(), name="catalogo-plantilla"),
     path("importar/", CollectionImportView.as_view(), name="catalogo-importar"),
 ] + router.urls

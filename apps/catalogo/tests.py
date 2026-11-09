@@ -1,5 +1,6 @@
 from django.test import TestCase
 from django.urls import reverse
+from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APITestCase
 from io import BytesIO
 from openpyxl import Workbook
@@ -259,4 +260,137 @@ class CatalogApiTests(APITestCase):
         self.assertEqual(result.processed, 2)
         self.assertEqual(result.created, 1)
         self.assertEqual(len(result.errors), 1)
+        self.assertEqual(result.errors[0]["fila"], 3)
         self.assertEqual(Libro.objects.filter(isbn="9780000000002").count(), 1)
+
+    def test_collection_import_updates_title_and_reconciles_copy_count(self):
+        from apps.catalogo.import_services import import_collection
+
+        def make_file(title, count):
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.append([
+                "titulo", "isbn", "autor_principal", "editorial", "año_edicion",
+                "categoria", "biblioteca", "cantidad_ejemplares", "activo",
+            ])
+            sheet.append([title, "9780000000004", "Perez, Ana", "Editorial UHO", 2020,
+                          "Ciencias", "Central", count, "SI"])
+            file_object = BytesIO()
+            workbook.save(file_object)
+            file_object.seek(0)
+            return file_object
+
+        created = import_collection(make_file("Primera versión", 2))
+        updated = import_collection(make_file("Título actualizado", 1))
+        book = Libro.objects.get(isbn="9780000000004")
+
+        self.assertEqual(created.created, 1)
+        self.assertEqual(created.copies_created, 2)
+        self.assertEqual(updated.updated, 1)
+        self.assertEqual(updated.copies_created, 0)
+        self.assertEqual(updated.copies_archived, 1)
+        self.assertEqual(book.titulo, "Título actualizado")
+        self.assertEqual(book.ejemplares.filter(estado="BAJA").count(), 1)
+        self.assertEqual(book.ejemplares.exclude(estado="BAJA").count(), 1)
+
+    def test_collection_template_contains_required_headers(self):
+        from openpyxl import load_workbook
+        from apps.catalogo.import_services import REQUIRED_COLUMNS, build_collection_template
+
+        workbook = load_workbook(BytesIO(build_collection_template()), read_only=True)
+        headers = set(next(workbook["Libros"].iter_rows(values_only=True)))
+
+        self.assertTrue(REQUIRED_COLUMNS.issubset(headers))
+        self.assertIn("Instrucciones", workbook.sheetnames)
+
+    def test_collection_template_endpoint_returns_xlsx(self):
+        from openpyxl import load_workbook
+
+        user = CustomUser.objects.create_user(
+            auth_uid="import-template-admin",
+            email="import-template@example.com",
+            nombre="Import",
+            apellidos="Admin",
+            ci="01020304059",
+            tipo_usuario="ADMINISTRADOR",
+        )
+        role = Role.objects.create(name="import-template-admin")
+        permission = Permission.objects.create(name="catalogo.manage")
+        RolePermission.objects.create(role=role, permission=permission)
+        UserRole.objects.create(user=user, role=role)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.get("/api/v1/admin/catalogo/plantilla/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("spreadsheetml.sheet", response["Content-Type"])
+        workbook = load_workbook(BytesIO(b"".join(response.streaming_content)), read_only=True)
+        self.assertIn("Instrucciones", workbook.sheetnames)
+
+    def test_collection_import_endpoint_rejects_non_xlsx(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="import-file-admin",
+            email="import-file@example.com",
+            nombre="Import",
+            apellidos="Admin",
+            ci="01020304060",
+            tipo_usuario="ADMINISTRADOR",
+        )
+        role = Role.objects.create(name="import-file-admin")
+        permission = Permission.objects.create(name="catalogo.manage")
+        RolePermission.objects.create(role=role, permission=permission)
+        UserRole.objects.create(user=user, role=role)
+        self.client.force_authenticate(user=user)
+
+        response = self.client.post(
+            "/api/v1/admin/catalogo/importar/",
+            {"file": BytesIO(b"not an excel workbook")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(".xlsx", response.json()["detail"])
+
+    def test_collection_import_endpoint_accepts_xlsx_upload(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="import-upload-admin",
+            email="import-upload@example.com",
+            nombre="Import",
+            apellidos="Admin",
+            ci="01020304061",
+            tipo_usuario="ADMINISTRADOR",
+        )
+        role = Role.objects.create(name="import-upload-admin")
+        permission = Permission.objects.create(name="catalogo.manage")
+        RolePermission.objects.create(role=role, permission=permission)
+        UserRole.objects.create(user=user, role=role)
+        self.client.force_authenticate(user=user)
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append([
+            "titulo", "isbn", "autor_principal", "editorial", "año_edicion",
+            "categoria", "biblioteca", "cantidad_ejemplares", "activo",
+        ])
+        sheet.append([
+            "Carga HTTP", "9780000000005", "Perez, Ana", "Editorial UHO", 2020,
+            "Ciencias", "Central", 1, "SI",
+        ])
+        output = BytesIO()
+        workbook.save(output)
+        upload = SimpleUploadedFile(
+            "catalogo.xlsx",
+            output.getvalue(),
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+        response = self.client.post(
+            "/api/v1/admin/catalogo/importar/",
+            {"file": upload},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["libros_creados"], 1)
+        self.assertEqual(response.json()["ejemplares_creados"], 1)
+        self.assertEqual(response.json()["errores"], [])

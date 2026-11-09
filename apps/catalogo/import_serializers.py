@@ -10,4 +10,5 @@ class CollectionImportResultSerializer(serializers.Serializer):
     libros_creados = serializers.IntegerField()
     libros_actualizados = serializers.IntegerField()
     ejemplares_creados = serializers.IntegerField()
+    ejemplares_archivados = serializers.IntegerField()
     errores = serializers.ListField(child=serializers.DictField())
