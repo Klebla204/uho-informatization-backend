@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "apps.maintenance", 
     "apps.research", 
     "apps.ai",
+    "apps.analytics",
     "core",
     
 ]
