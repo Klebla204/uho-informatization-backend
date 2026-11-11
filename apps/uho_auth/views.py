@@ -1,9 +1,12 @@
 ﻿from django.contrib.auth import authenticate, get_user_model
+from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.rbac.models import UserRole
 from .client import uho_login
 
 User = get_user_model()
@@ -53,6 +56,9 @@ class LoginView(APIView):
             return failed
 
         refresh = RefreshToken.for_user(user)
+        active_roles = list(UserRole.objects.filter(user=user).filter(
+            Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())
+        ).values_list("role__name", flat=True))
         return Response({
             "access": str(refresh.access_token),
             "refresh": str(refresh),
@@ -61,4 +67,5 @@ class LoginView(APIView):
             "apellidos": user.apellidos,
             "tipo_usuario": user.tipo_usuario,
             "is_staff": user.is_staff,
+            "roles": active_roles,
         })

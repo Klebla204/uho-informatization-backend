@@ -39,13 +39,22 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.stdout.write('Seeding permissions...')
         for p in DEFAULT_PERMISSIONS:
-            perm, created = Permission.objects.get_or_create(name=p['name'], defaults={'description': p.get('description', '')})
+            perm, created = Permission.objects.update_or_create(
+                name=p['name'],
+                defaults={'description': p.get('description', '')},
+            )
             if created:
                 self.stdout.write(f'  Created permission: {perm.name}')
 
         self.stdout.write('Seeding roles...')
         for r in DEFAULT_ROLES:
-            role, created = Role.objects.get_or_create(name=r['name'], defaults={'display_name': r.get('display_name', ''), 'is_system': r.get('is_system', False)})
+            role, created = Role.objects.update_or_create(
+                name=r['name'],
+                defaults={
+                    'display_name': r.get('display_name', ''),
+                    'is_system': r.get('is_system', False),
+                },
+            )
             if created:
                 self.stdout.write(f'  Created role: {role.name}')
 

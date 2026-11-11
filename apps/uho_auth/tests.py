@@ -2,6 +2,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from apps.rbac.models import Role, UserRole
 from apps.users.models import CustomUser
 
 UNIVERSITY_USER = {
@@ -28,7 +29,31 @@ class LoginTests(TestCase):
             response = self.client.post(self.url, {"username": "local", "password": "clave-segura-123"}, content_type="application/json")
         self.assertEqual(response.status_code, 200)
         self.assertIn("access", response.json())
+        self.assertEqual(response.json()["roles"], [])
         uho.assert_not_called()
+
+    def test_login_returns_active_rbac_roles(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="role-login",
+            email="role-login@example.com",
+            nombre="Role",
+            apellidos="Login",
+            ci="01020304050",
+            tipo_usuario="TRABAJADOR",
+        )
+        user.set_password("clave-segura-123")
+        user.save()
+        role = Role.objects.create(name="super_admin", display_name="Super-Admin")
+        UserRole.objects.create(user=user, role=role)
+
+        response = self.client.post(
+            self.url,
+            {"username": "role-login", "password": "clave-segura-123"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["roles"], ["super_admin"])
 
     def test_university_user_is_created_locally(self):
         with patch("apps.uho_auth.views.uho_login", return_value=UNIVERSITY_USER):
