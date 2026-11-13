@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.rbac.models import UserRole
+from apps.auditoria.services import record_audit_event
 from .client import uho_login
 
 User = get_user_model()
@@ -29,6 +30,7 @@ class LoginView(APIView):
         failed = Response({"error": "Login failed"}, status=status.HTTP_401_UNAUTHORIZED)
 
         if not username or not password:
+            record_audit_event(request=request, action="LOGIN_FAILED", entity="login")
             return failed
 
         # 1) Usuario local (p. ej. superusuarios creados en Django)
@@ -38,6 +40,7 @@ class LoginView(APIView):
         if user is None:
             data = uho_login(username, password)
             if data is None or not data["active"]:
+                record_audit_event(request=request, action="LOGIN_FAILED", entity="login")
                 return failed
 
             uid = data["username"] or username
@@ -53,8 +56,10 @@ class LoginView(APIView):
                 )
 
         if not user.is_active or user.estado != "ACTIVO":
+            record_audit_event(request=request, action="LOGIN_FAILED", entity="login", user=user)
             return failed
 
+        record_audit_event(request=request, action="LOGIN", entity="login", entity_id=user.id, user=user)
         refresh = RefreshToken.for_user(user)
         active_roles = list(UserRole.objects.filter(user=user).filter(
             Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now())

@@ -12,6 +12,33 @@ from .models import Autor, Biblioteca, Categoria, Editorial, Ejemplar, Libro
 
 
 class LibraryModelTests(TestCase):
+    def test_seed_libraries_creates_four_sedes_idempotently(self):
+        from django.core.management import call_command
+
+        user = CustomUser.objects.create_user(
+            auth_uid="library-seed-admin",
+            email="library-seed-admin@example.com",
+            nombre="Super",
+            apellidos="Administrador",
+            ci="LIBRARY-SEED-ADMIN",
+            tipo_usuario="SUPER_ADMIN",
+        )
+
+        call_command("seed_libraries", responsable_id=str(user.id), verbosity=0)
+        call_command("seed_libraries", responsable_id=str(user.id), verbosity=0)
+
+        names = {
+            "Sede Oscar Lucero",
+            "Sede Manuel Fajardo",
+            "Sede Jose de la Luz y Caballero",
+            "Sede Celia Sánchez",
+        }
+        libraries = Biblioteca.objects.filter(nombre__in=names)
+        self.assertEqual(libraries.count(), 4)
+        self.assertEqual(set(libraries.values_list("nombre", flat=True)), names)
+        self.assertEqual(set(libraries.values_list("responsable_id", flat=True)), {user.id})
+        self.assertEqual(set(libraries.values_list("direccion", flat=True)), {"Por definir"})
+
     def test_library_has_uuid_and_responsible_user(self):
         user = CustomUser.objects.create_user(
             auth_uid="librarian-1",
@@ -107,6 +134,23 @@ class CatalogApiTests(APITestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["id"], str(self.book.id))
         self.assertEqual(len(response.json()["ejemplares"]), 1)
+
+    def test_openapi_30_documents_public_availability_and_jwt_loans(self):
+        response = self.client.get("/api/schema/", HTTP_ACCEPT="application/json")
+
+        self.assertEqual(response.status_code, 200)
+        schema = response.json()
+        self.assertEqual(schema["openapi"], "3.0.3")
+        self.assertIn("/api/v1/libros/", schema["paths"])
+        self.assertIn("/api/v1/libros/{libro_id}/", schema["paths"])
+        self.assertIn("/api/v1/prestamos/mis-prestamos/", schema["paths"])
+        self.assertIn("jwtAuth", schema["components"]["securitySchemes"])
+        loan_operation = schema["paths"]["/api/v1/prestamos/mis-prestamos/"]["get"]
+        self.assertIn({"jwtAuth": []}, loan_operation["security"])
+        schemas = schema["components"]["schemas"]
+        self.assertIn("ejemplares_disponibles", schemas["LibroList"]["properties"])
+        self.assertIn("ejemplares", schemas["LibroDetail"]["properties"])
+        self.assertIn("disponible", schemas["Ejemplar"]["properties"])
 
     def test_public_libraries_endpoint_lists_only_active_libraries(self):
         librarian = Biblioteca.objects.get(nombre="Central").responsable

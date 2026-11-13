@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from django.db.models import Q
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
 from rest_framework import serializers
 from rest_framework.generics import ListAPIView
@@ -26,6 +27,22 @@ class MyLoansView(ListAPIView):
     authentication_classes = (JWTAuthentication,)
     permission_classes = (IsAuthenticated,)
     serializer_class = LoanListSerializer
+
+    @extend_schema(
+        summary="Consultar estado de mis préstamos",
+        description="Devuelve únicamente los préstamos del usuario autenticado, con estado, libro, ejemplar, biblioteca y fechas. Requiere JWT Bearer.",
+        parameters=[
+            OpenApiParameter(
+                "estado",
+                OpenApiTypes.STR,
+                enum=[choice[0] for choice in Prestamo.STATUS_CHOICES],
+                description="Filtra por estado del préstamo.",
+            ),
+        ],
+        responses=LoanListSerializer(many=True),
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
     def get_queryset(self):
         queryset = Prestamo.objects.filter(usuario=self.request.user).select_related(

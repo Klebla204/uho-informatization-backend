@@ -1,5 +1,7 @@
 from django.db.models import Count, Exists, IntegerField, OuterRef, Q, Subquery
 from django.db.models.functions import Coalesce, Lower
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework.generics import ListAPIView, RetrieveAPIView
 from rest_framework.permissions import AllowAny
 
@@ -76,11 +78,35 @@ class CatalogBookQuerysetMixin:
 class LibroListView(CatalogBookQuerysetMixin, ListAPIView):
     serializer_class = LibroListSerializer
 
+    @extend_schema(
+        summary="Consultar catálogo de libros",
+        description="Lista libros activos e informa ejemplares totales y disponibles. La disponibilidad excluye ejemplares reservados o prestados.",
+        parameters=[
+            OpenApiParameter("q", OpenApiTypes.STR, description="Buscar por título, ISBN o autor."),
+            OpenApiParameter("categoria", OpenApiTypes.STR, description="UUID o nombre de categoría."),
+            OpenApiParameter("biblioteca", OpenApiTypes.STR, description="UUID o nombre de biblioteca."),
+            OpenApiParameter("disponibilidad", OpenApiTypes.STR, enum=["disponible", "no_disponible"], description="Filtra por disponibilidad de ejemplares."),
+        ],
+        responses=LibroListSerializer(many=True),
+        auth=[],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class LibroDetailView(CatalogBookQuerysetMixin, RetrieveAPIView):
     serializer_class = LibroDetailSerializer
     lookup_field = "id"
     lookup_url_kwarg = "libro_id"
+
+    @extend_schema(
+        summary="Consultar libro y disponibilidad por ejemplar",
+        description="Devuelve la ficha del libro y cada ejemplar con su biblioteca, estado y campo disponible.",
+        responses=LibroDetailSerializer,
+        auth=[],
+    )
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
 
 
 class BibliotecaListView(ListAPIView):
@@ -88,8 +114,16 @@ class BibliotecaListView(ListAPIView):
     serializer_class = BibliotecaPublicSerializer
     queryset = Biblioteca.objects.filter(activa=True).order_by("nombre")
 
+    @extend_schema(summary="Listar bibliotecas activas", responses=BibliotecaPublicSerializer(many=True), auth=[])
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)
+
 
 class CategoriaListView(ListAPIView):
     permission_classes = (AllowAny,)
     serializer_class = CategoriaPublicSerializer
     queryset = Categoria.objects.filter(activa=True).order_by("nombre")
+
+    @extend_schema(summary="Listar categorías activas", responses=CategoriaPublicSerializer(many=True), auth=[])
+    def get(self, request, *args, **kwargs):
+        return super().get(request, *args, **kwargs)

@@ -17,6 +17,7 @@ DEFAULT_PERMISSIONS = [
     {'name': 'prestamos.request', 'description': 'Solicitar préstamos'},
     {'name': 'prestamos.manage', 'description': 'Gestionar préstamos y devoluciones'},
     {'name': 'reportes.view', 'description': 'Consultar reportes'},
+    {'name': 'auditoria.view', 'description': 'Consultar registros de auditoría'},
     {'name': 'admin.manage', 'description': 'Gestionar configuración institucional'},
 ]
 
@@ -25,10 +26,10 @@ ROLE_PERMISSIONS = {
     'estudiante': ['catalogo.view', 'prestamos.request'],
     'trabajador': ['catalogo.view', 'prestamos.request'],
     'bibliotecario': ['catalogo.view', 'catalogo.manage', 'prestamos.manage'],
-    'administrador_biblioteca': ['catalogo.view', 'catalogo.manage', 'prestamos.manage', 'reportes.view'],
+    'administrador_biblioteca': ['catalogo.view', 'catalogo.manage', 'prestamos.manage', 'reportes.view', 'auditoria.view'],
     'super_admin': [
         'catalogo.view', 'catalogo.manage', 'prestamos.request',
-        'prestamos.manage', 'reportes.view', 'admin.manage',
+        'prestamos.manage', 'reportes.view', 'auditoria.view', 'admin.manage',
     ],
 }
 

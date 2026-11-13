@@ -10,6 +10,7 @@ from apps.academics.models import Carrera, Facultad
 from apps.catalogo.models import Autor, Biblioteca, Categoria, Editorial, Ejemplar, Libro
 from apps.students.models import PerfilEstudiante
 from apps.users.models import CustomUser
+from apps.auditoria.models import LogsAuditoria
 
 from .models import Carnet, ListaEspera, Notificacion, Prestamo
 
@@ -221,6 +222,10 @@ class OnlineLoanRequestApiTests(APITestCase):
         )
         self.assertEqual(approve_response.status_code, 200)
         self.assertEqual(approve_response.json()["estado"], "LISTO")
+        approval_log = LogsAuditoria.objects.get(accion="LOAN_APPROVED", entidad="loan_approve")
+        self.assertEqual(approval_log.entidad_id, loan_id)
+        self.assertEqual(approval_log.datos_anteriores, {"estado": "PENDIENTE"})
+        self.assertEqual(approval_log.datos_nuevos, {"estado": "LISTO"})
 
         collect_response = self.client.post(reverse("loan_collect", kwargs={"loan_id": loan_id}))
         self.assertEqual(collect_response.status_code, 200)

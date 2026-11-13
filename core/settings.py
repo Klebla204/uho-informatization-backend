@@ -96,6 +96,24 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
 }
 
+SPECTACULAR_SETTINGS = {
+    "TITLE": "BiblioUHO API",
+    "DESCRIPTION": "API REST para consulta del catálogo y disponibilidad, gestión de préstamos y servicios administrativos. Los endpoints protegidos usan JWT Bearer.",
+    "VERSION": "1.0.0",
+    "OAS_VERSION": "3.0.3",
+    "COMPONENTS": {
+        "securitySchemes": {
+            "jwtAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+                "description": "Pega el access token obtenido en POST /api/token/.",
+            },
+        },
+    },
+    "SECURITY": [{"jwtAuth": []}],
+}
+
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS_ALLOWED_ORIGINS",
