@@ -1,191 +1,178 @@
-# Backend — Sistema de Gestion de Préstamos Bibliotecarios (BiblioUHO)
+# Backend BiblioUHO
 
-Este documento describe la arquitectura, alcance y pasos prácticos para el backend del proyecto de informatización de la gestion de prestamos bibliotecarios en la Universidad de Holguín (UHO).
+API REST del sistema BiblioUHO, construida con Django, Django REST Framework y JWT. Esta guía permite instalarla desde un clon nuevo del repositorio.
 
-## Visión general
-El backend es una API REST construida con Django y Django REST Framework. Está organizado en apps modulares (students, academics, hr, maintenance, research, analytics, ai, etc.) y expone endpoints consumidos por el frontend.
+## Requisitos
 
-Objetivos principales:
-- Proveer API seguras y versionadas.
-- Soportar RBAC (control de acceso basado en roles) y auditoría de acciones.
-- Ser desplegable en Docker y escalable con PostgreSQL y MinIO.
+- Python 3.11 o superior (el proyecto también se valida con Python 3.13).
+- Git.
+- PostgreSQL solo si se elige ese motor; por defecto se usa SQLite.
 
-## Alcance
-Incluye:
-- Gestión de usuarios y roles (RBAC).
-- Módulos para estudiantes, académicos, RRHH, mantenimiento, investigación y analítica.
-- Integración con sistemas de almacenamiento de objetos (MinIO) y servicios AI (APIs internas/external).
+## Instalación local
 
-No incluye (por ahora): integración con sistemas externos legacy específicos (se evaluará caso a caso).
+Los comandos se muestran desde la raíz del repositorio.
 
-## Diagrama de arquitectura (resumen)
+### Windows PowerShell
 
-- Clientes (Web, Mobile)
-	-> Frontend (React/Vite) 
-	-> Comunicación por HTTPS a la API Django REST
-- Backend (Django)
-	- Apps modulares (cada dominio como una app)
-	- Autenticación: JWT (Simple JWT)
-	- Autorización: RBAC (apps.rbac)
-	- Auditoría: middleware que registra operaciones importantes
-	- Storage: MinIO (S3 compatible) para archivos y activos
-	- DB: PostgreSQL (producción)
-
-## RBAC — Resumen
-- Implementación en `apps.rbac` con modelos: Role, Permission, RolePermission, UserRole y RoleHierarchy.
-- Command para sembrar roles/permisos por defecto: `python manage.py seed_roles`.
-- Comando helper para aplicar migraciones + semilla: `python manage.py apply_rbac` (usa `makemigrations` y `migrate` para la app y luego ejecuta `seed_roles`).
-
-## Seguridad
-- Autenticación: JWT (djangorestframework-simplejwt).
-- Control de acceso: permisos asignados a roles; roles asignados a usuarios (posibilidad de alcance por recurso).
-- Recomendaciones: proteger `main` y `develop` en GitHub, requerir PR y checks antes de merge.
-
-## Despliegue
-- En producción se recomienda usar Docker + docker-compose o Kubernetes, con servicios:
-	- Postgres (persistente)
-	- MinIO (persistente)
-	- Servicio web (Gunicorn/uvicorn detrás de Nginx)
-	- Redis (opcional, cache / Celery broker)
-
-## Desarrollo local (rápido)
-Requisitos: Python 3.11+, Docker (opcional) y Node.js para frontend.
-
-1) Crear y activar virtualenv (PowerShell):
 ```powershell
-python -m venv .venv
-. .venv\Scripts\Activate.ps1
-```
-
-2) Instalar dependencias:
-```powershell
+git clone <URL_DEL_REPOSITORIO>
+cd uho-dev-system
+py -3 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
 pip install -r backend\requirements.txt
+Copy-Item backend\.env.example backend\.env
 ```
 
-3) Para desarrollo rápido usar SQLite temporal (no afecta producción):
+Si PowerShell bloquea la activación del entorno, ejecuta `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` en esa terminal y activa de nuevo.
+
+### Linux / macOS
+
+```bash
+git clone <URL_DEL_REPOSITORIO>
+cd uho-dev-system
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install -r backend/requirements.txt
+cp backend/.env.example backend/.env
+```
+
+## Configuración
+
+Edita `backend/.env`. No subas ese archivo al repositorio.
+
+- `DJANGO_SECRET_KEY`: clave secreta única y aleatoria. No uses la de ejemplo en un servidor compartido.
+- `DJANGO_DEBUG`: `true` para desarrollo; `false` en producción.
+- `DJANGO_ALLOWED_HOSTS`: nombres/IP por los que se accede al backend, separados por comas y sin esquema ni puerto.
+- `CORS_ALLOWED_ORIGINS`: orígenes frontend completos, separados por comas, con esquema y puerto cuando aplique.
+- `FRONTEND_HOME_URL`: destino de la redirección de `/` en Django; por defecto apunta al catálogo local de Vite.
+- `USE_POSTGRES`: por defecto `false`, por lo que se utiliza `backend/db.sqlite3`.
+- `DATABASE_URL`: URL PostgreSQL requerida al activar `USE_POSTGRES=true`, por ejemplo `postgresql://usuario:clave@localhost:5432/uho_db`.
+- `UHO_API_KEY`, `UHO_AUTH_URL` y `UHO_AUTH_ORIGIN`: opcionales; se usan para la autenticación institucional cuando el proveedor está habilitado.
+
+La aplicación busca `backend/.env`. Las variables definidas en el entorno del sistema también son válidas y tienen precedencia según `python-dotenv`.
+
+## Base de datos y roles
+
+Desde la raíz, con el entorno virtual activado:
+
 ```powershell
-$root = (Get-Location).Path -replace '\\','/'
-$env:DATABASE_URL = "sqlite:///$root/backend/db.sqlite3"
-python backend\manage.py makemigrations
 python backend\manage.py migrate
-```
-
-4) Crear migraciones y semilla RBAC (helper):
-```powershell
-python backend\manage.py apply_rbac
-# o si prefieres solo sembrar después de migraciones:
 python backend\manage.py seed_roles
 ```
 
-5) Ejecutar servidor de desarrollo:
-```powershell
-python backend\manage.py runserver
+En Linux/macOS, sustituye las barras inversas:
+
+```bash
+python backend/manage.py migrate
+python backend/manage.py seed_roles
 ```
 
-### Autenticación
+`migrate` aplica las migraciones incluidas en el repositorio. `seed_roles` crea los permisos y roles RBAC predefinidos y se puede ejecutar de nuevo sin duplicarlos.
 
-`POST /auth/login/` con `{"username", "password"}`: 1) se prueba un usuario local de Django; 2) si no es válido, se consulta `auth.uho.edu.cu` (variables `UHO_API_KEY`, `UHO_AUTH_URL`, `UHO_AUTH_ORIGIN`); 3) si la universidad autentica y la cuenta está activa, se crea la cuenta local (tipo de usuario según el proveedor) si no existe; 4) se responde con tokens JWT (`access`/`refresh`). Fallo: `401`.
+Para crear una cuenta administradora local:
 
-### Avisos de vencimiento
-
-`python manage.py notificar_vencimientos` crea (una sola vez por préstamo) la notificación in-app de "vence en 3 días o menos" y la de "préstamo vencido" (desde el día siguiente a la fecha pactada). Debe programarse a diario (cron o Programador de tareas). Además, cada usuario recibe sus avisos pendientes al consultar sus notificaciones.
-
-Si prefieres usar Docker (recomendado para replicar producción):
-```powershell
-# ejemplo rápido (necesita un docker-compose.yml apropiado)
-docker compose up -d
+```bash
+python backend/manage.py createsuperuser
 ```
 
-## Migrar de SQLite a PostgreSQL (script)
+Para verificar la instalación:
 
-Se incluye un helper PowerShell para automatizar la creación de la base de datos/usuario en Postgres,
-volcar los datos desde SQLite y ejecutar migraciones: `scripts/migrate_sqlite_to_postgres.ps1`.
-
-Uso recomendado (desde `backend` con el virtualenv activado):
-
-PowerShell:
-
-```powershell
-# Ejecuta el script (te puede pedir la contraseña del superusuario postgres)
-.\scripts\migrate_sqlite_to_postgres.ps1 -PgSuperUser postgres
-
-# Si necesitas pasar la contraseña del superuser (temporalmente) para llamadas psql:
-.\scripts\migrate_sqlite_to_postgres.ps1 -PgSuperUser postgres -PgSuperPassword 'TuPassword'
+```bash
+python backend/manage.py check
+python backend/manage.py test apps.rbac.tests apps.uho_auth.tests apps.catalogo.tests apps.prestamos.tests apps.analytics.tests apps.auditoria.tests --noinput
 ```
 
-El script crea el usuario/BD (si no existen), realiza `dumpdata` desde la SQLite actual,
-aplica `migrate` en Postgres y luego `loaddata`.
+## Levantar la API
 
-Notas:
-- Haz un backup del archivo `db.sqlite3` antes de ejecutar el script.
-- Si `loaddata` falla por dependencias complejas, prueba exportar y cargar app por app.
-- Para migraciones grandes o si deseas conservar tipos/constraints exactamente como en producción,
-  considera usar `pgloader` desde WSL o una herramienta ETL especializada.
+```bash
+python backend/manage.py runserver 127.0.0.1:8000
+```
 
-## CI / QA
-- El repo contiene una GitHub Action (`.github/workflows/ci.yml`) que corre tests del backend usando una imagen de Postgres en Actions. Revisa y adapta el workflow si cambias versiones de Python/Postgres.
+La API estará en `http://127.0.0.1:8000`. La documentación Swagger/OpenAPI está en `http://127.0.0.1:8000/api/docs/` y el esquema JSON en `/api/schema/`.
 
-## Contribuir
-- Sigue el flujo Git: `feature/*` -> `develop` -> `main`.
-- Usa PRs y asigna reviewers. Añade tests y actualiza documentación.
+## Acceso desde otra computadora en la red
 
-## Contacto / Mantenimiento
-- Mantener actualizadas las dependencias en `backend/requirements.txt`.
-- Documentar cambios de esquema (migraciones) y política de retención de datos.
+1. Averigua la IP local del equipo que ejecuta Django, por ejemplo `192.168.1.25`.
+2. En `backend/.env`, configura `DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,192.168.1.25`.
+3. En `frontend/src/.env`, configura `VITE_API_URL=http://192.168.1.25:8000`.
+4. Agrega el origen del frontend en `CORS_ALLOWED_ORIGINS`, por ejemplo `http://192.168.1.25:5173`.
+5. Si se usa la redirección `/` del backend, configura `FRONTEND_HOME_URL=http://192.168.1.25:5173/pages/catalogo.html`.
+6. Reinicia los servidores después de cambiar `.env` y permite los puertos 8000/5173 en el firewall solo dentro de la red de confianza.
+7. Inicia Django escuchando en la interfaz de red:
 
-## ⚙️ Roadmap Backend – BiblioUHO
+```bash
+python backend/manage.py runserver 0.0.0.0:8000
+```
 
-## 🚀 Fase 1: Configuración Inicial
-- [x] **[Stack tecnológico](ca://s?q=Definir_Stack_Tecnológico)** – Django + Django REST Framework, SQLite para desarrollo local, PostgreSQL preparado para producción y Docker Compose configurado como despliegue opcional
-- [x] **[Estructura de capas](ca://s?q=Diseñar_Estructura_de_Capas)** – separación en controladores, servicios, repositorios y modelos
-- [ ] **[Autenticación institucional](ca://s?q=Implementar_Autenticación_Institucional)** – integración con auth.uho.edu.cu vía OAuth2/LDAP  
-- [x] **[Gestión de roles y permisos](ca://s?q=Construir_Gestión_de_Roles_y_Permisos)** – control granular de accesos por módulo
+No uses `runserver` como servidor de producción. Para producción se requiere un servidor WSGI/ASGI, HTTPS, `DJANGO_DEBUG=false`, una clave propia y un motor de base de datos con respaldos.
 
+## PostgreSQL opcional
 
+Instala y arranca PostgreSQL, crea una base de datos y un usuario, y configura en `backend/.env`:
 
-## 📚 Fase 2: Gestión de Datos
-- [x] **[Modelo de datos](ca://s?q=Construir_Modelo_de_Datos)** – entidades usuarios, préstamos, catálogo, perfiles de estudiante/trabajador
-- [x] **[CRUD de catálogo](ca://s?q=Implementar_CRUD_de_Catálogo)** – títulos, ejemplares, autores, editoriales, categorías
-- [x] **[Nomencladores CRUD](ca://s?q=Desarrollar_Nomencladores_CRUD)** – facultades, carreras, tipos de curso, cargos, bibliotecas
-- [x] **[Importación Excel](ca://s?q=Implementar_Importación_Excel_Backend)** – validación de datos, reporte de errores y actualización masiva
+```dotenv
+USE_POSTGRES=true
+DATABASE_URL=postgresql://usuario:clave@localhost:5432/uho_db
+```
 
+Luego ejecuta `python backend/manage.py migrate`. Mantén las credenciales fuera de Git.
 
+## Tareas habituales
 
-## 🔑 Fase 3: Gestión de Préstamos
-- [ ] **[Solicitud en línea](ca://s?q=Construir_Solicitud_en_Línea_Backend)** – verificación de disponibilidad y estado “Pendiente”  
-- [ ] **[Préstamo presencial](ca://s?q=Implementar_Préstamo_Presencial_Backend)** – registro directo por bibliotecario con carnet QR  
-- [ ] **[Renovación de préstamo](ca://s?q=Desarrollar_Renovación_de_Préstamo_Backend)** – validación de reservas pendientes antes de aprobar  
-- [ ] **[Lista de espera](ca://s?q=Construir_Lista_de_Espera_Backend)** – notificación automática al primer usuario cuando se libera un ejemplar  
-- [ ] **[Multas y sanciones](ca://s?q=Implementar_Multas_y_Sanciones)** – bloqueo temporal de solicitudes por préstamos vencidos  
+```bash
+python backend/manage.py makemigrations
+python backend/manage.py migrate
+python backend/manage.py seed_roles
+python backend/manage.py notificar_vencimientos
+```
 
+`notificar_vencimientos` debe programarse diariamente si se desea emitir notificaciones automáticas de vencimiento.
 
-## 📡 Fase 4: Interoperabilidad y API
-- [x] **[API REST](ca://s?q=Construir_API_REST_Backend)** – endpoints para catálogo, disponibilidad y CRUD protegido con JWT
-- [x] **[Documentación OpenAPI](ca://s?q=Generar_Documentación_OpenAPI)** – especificación 3.0 para consumo externo
-- [ ] **[Integración con SIGENU](ca://s?q=Integrar_SIGENU_Backend)** – sincronización de datos académicos de estudiantes  
-- [ ] **[Integración con ASSET](ca://s?q=Integrar_ASSET_Backend)** – sincronización de datos laborales de trabajadores  
-- [ ] **[Panel multibiblioteca](ca://s?q=Construir_Panel_Multibiblioteca_Backend)** – gestión consolidada de las cuatro bibliotecas  
+## Roadmap del backend
 
+Estado contrastado con el documento [Sistema Integrado de Gestión de Préstamos Bibliotecarios (BiblioUHO)_Requerimientos.pdf](../Sistema%20Integrado%20de%20Gesti%C3%B3n%20de%20Pr%C3%A9stamos%20Bibliotecarios%28BiblioUHO%29_Requerimientos.pdf) y el código/tests actuales. `[x]` significa completado en el alcance descrito; `[ ] Parcial` indica que existe funcionalidad pero falta cerrar parte del requisito; `[ ] Pendiente` indica trabajo no implementado.
 
-## 🛡️ Fase 5: Seguridad y Auditoría
-- [x] **[Logs de auditoría](ca://s?q=Implementar_Logs_de_Auditoría)** – registro de acciones con timestamp, usuario, entidad e IP
-- [ ] **[Protección OWASP](ca://s?q=Aplicar_Protecciones_OWASP)** – CSRF, XSS, SQL Injection, validación de entradas  
-- [x] **[Cifrado de datos sensibles](ca://s?q=Implementar_Cifrado_de_Datos)** – almacenamiento cifrado de CI y teléfono
-- [ ] **[TLS/HTTPS](ca://s?q=Configurar_TLS_y_HTTPS)** – comunicación cifrada con certificados válidos  
+### E1-E2: Base, usuarios y autenticación
 
+- [x] API Django REST, JWT, perfiles, roles y permisos RBAC (RF-13, RF-15).
+- [x] Perfil de estudiante, validación de completitud, carnet QR y descarga PDF (RF-04).
+- [ ] Parcial: autenticación contra `auth.uho.edu.cu` mediante cliente institucional y API key; falta el flujo OAuth2/OIDC Authorization Code + PKCE descrito en el PDF (RF-03).
+- [ ] Pendiente: sincronización de perfiles con SIGENU y ASSET en el primer acceso y de forma programada (RF-03, integración externa).
+- [ ] Pendiente: definir el proceso de actualización y verificación de datos personales, incluyendo consentimiento y consulta/exportación de datos.
 
+### E3: Catálogo y nomencladores
 
-## 📊 Fase 6: Reportes y Optimización
-- [ ] **[Reportes y estadísticas](ca://s?q=Generar_Reportes_Backend)** – préstamos por período, biblioteca, usuarios destacados, vencidos  
-- [ ] **[Exportación PDF/Excel](ca://s?q=Implementar_Exportación_PDF_Excel)** – generación de reportes descargables  
-- [ ] **[Performance](ca://s?q=Optimizar_Performance_Backend)** – consultas rápidas y escalabilidad para nuevas bibliotecas  
-- [x] **[Cobertura de tests](ca://s?q=Implementar_Tests_Backend)** – suite de pruebas unitarias e integración para los módulos implementados
-- [x] **[Mantenibilidad](ca://s?q=Mejorar_Mantenibilidad_Backend)** – estándares de codificación y documentación técnica actualizada
+- [x] API pública de libros, detalle, filtros y disponibilidad por biblioteca (RF-01, RF-02).
+- [x] CRUD administrativo de libros, ejemplares, autores, categorías, editoriales y bibliotecas (RF-10).
+- [x] Importación Excel con plantilla, validación por fila y límite de 1000 filas (RF-11).
+- [ ] Parcial: CRUD completo de nomencladores académicos y laborales (facultades, carreras, cargos y departamentos) desde administración (RF-12).
+- [ ] Pendiente: almacenar y servir portadas y archivos en almacenamiento de objetos configurable (RF-02, arquitectura sugerida).
 
-Notas:
-- Cada módulo debe incluir: modelos, migraciones, API endpoints, permisos RBAC, tests unitarios/integración y documentación de uso.
-- Prioridad inicial: `users`, `rbac` (completado), `students` y `academics`.
-- Propuesta de milestones: Sprint 1 (users + rbac + students básico), Sprint 2 (academics + hr), Sprint 3 (maintenance + research + analytics), Sprint 4 (ai + storage + hardening).
+### E4-E5: Préstamos y notificaciones
 
+- [x] Solicitud en línea, control de ejemplar disponible y estados pendiente/aprobado/listo/activo/devuelto/rechazado (RF-05, RF-06).
+- [x] Fecha pactada ingresada por bibliotecario al registrar la entrega; préstamo presencial directo con fecha de devolución (RF-06, RF-07, RF-08).
+- [x] Registro de devolución y liberación del ejemplar (RF-06).
+- [x] Notificaciones in-app de vencimiento próximo y vencido, más consulta de vencimientos por biblioteca (RF-08).
+- [ ] Parcial: el modelo de lista de espera existe, pero falta inscripción/API, orden de cola y notificación automática al liberar un ejemplar (RF-18).
+- [ ] Pendiente: solicitud y aprobación de renovación (RF-19).
+- [ ] Pendiente: registro de sanciones y bloqueo temporal de solicitudes (RF-20).
+- [ ] Parcial: notificaciones por correo y procesamiento asíncrono; actualmente los avisos de vencimiento se generan mediante comando y notificaciones in-app (RF-08, RNF-14).
 
-Este README debe usarse como documento de arquitectura y alcance inicial del backend; se sugiere mantenerlo sincronizado con la documentación formal del proyecto.
+### E6: Reportes, auditoría y API
+
+- [x] API documentada con OpenAPI/Swagger y autenticación JWT (RF-15).
+- [x] Reportes de préstamos, bibliotecas, libros, usuarios, vencimientos y colección, con exportación PDF/XLSX (RF-14).
+- [x] Registro de auditoría con usuario, acción, entidad, IP y datos de cambios para operaciones instrumentadas (RF-16).
+- [ ] Parcial: ampliar cobertura de auditoría a todas las acciones sensibles y definir retención mínima de 90 días (RF-16, RNF-11).
+- [ ] Parcial: el panel multibiblioteca y el aislamiento por sede están implementados en el API/RBAC; falta completar indicadores de estado global de las cuatro bibliotecas (RF-17).
+
+### E7-E9: Calidad, seguridad e instalación
+
+- [x] Pruebas automatizadas de autenticación, RBAC, catálogo, préstamos, auditoría y analítica; CI ejecuta pruebas del backend.
+- [ ] Pendiente: medir y alcanzar cobertura mínima de 60%, añadir pruebas de carga (200 usuarios) y revisión OWASP documentada (RNF-01, RNF-03, RNF-08).
+- [ ] Parcial: despliegue Docker Compose con PostgreSQL, Redis y MinIO definidos; completar configuración segura de secretos, migraciones/seed automáticos, almacenamiento y procedimiento de producción (RNF-09).
+- [ ] Pendiente: configuración operativa de HTTPS/TLS, respaldos, monitorización y objetivo de disponibilidad ≥95% (RNF-02, RNF-03).
+- [x] Guía de instalación local, variables de entorno y configuración de red documentadas en este README.

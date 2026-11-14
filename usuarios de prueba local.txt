@@ -1,0 +1,12 @@
+Tipo	Usuario	Contraseña
+
+Laura Prueba    estudiante1     Estudiante#2026
+Estudiante      estudiante2	Es2!uho1
+Estudiante	estudiante2	Es2!uho1
+Carlos Prueba   biblio1         Biblio#2026
+Bibliotecario	biblio2	        Bi2!uho1
+Bibliotecario	biblio3	        Bi3!uho1
+Administrador   ana.admin       Ana123!
+Administrador	admin2	        Ad2!uho1
+Administrador	admin3	        Ad3!uho1
+Superadministrador super.admin  Super123!
