@@ -5,11 +5,38 @@ from rest_framework.test import APIClient
 
 from apps.rbac.models import Permission, Role, RolePermission, UserRole
 from apps.users.models import CustomUser
+from apps.catalogo.models import Biblioteca
 
 from .models import LogsAuditoria
 
 
 class AuditLogTests(TestCase):
+    def create_scoped_admin(self, auth_uid, email, ci):
+        admin = CustomUser.objects.create_user(
+            auth_uid=auth_uid,
+            email=email,
+            nombre="Audit",
+            apellidos="Admin",
+            ci=ci,
+            tipo_usuario="ADMINISTRADOR",
+        )
+        library = Biblioteca.objects.create(
+            nombre=f"Biblioteca {auth_uid}",
+            direccion="Calle 1",
+            responsable=admin,
+        )
+        admin.biblioteca = library
+        admin.save(update_fields=["biblioteca"])
+        return admin, library
+
+    def assign_scoped_role(self, admin, library, role):
+        UserRole.objects.create(
+            user=admin,
+            role=role,
+            resource_type="biblioteca",
+            resource_id=str(library.id),
+        )
+
     def test_authenticated_request_creates_immutable_audit_record_data(self):
         user = CustomUser.objects.create_user(
             auth_uid="audit-user",
@@ -77,13 +104,8 @@ class AuditLogTests(TestCase):
 
     def test_admin_can_filter_logs_but_regular_user_cannot_query_them(self):
         call_command("seed_roles", verbosity=0)
-        admin = CustomUser.objects.create_user(
-            auth_uid="audit-admin",
-            email="audit-admin@example.com",
-            nombre="Audit",
-            apellidos="Admin",
-            ci="01020304073",
-            tipo_usuario="ADMINISTRADOR",
+        admin, library = self.create_scoped_admin(
+            "audit-admin", "audit-admin@example.com", "01020304073"
         )
         regular = CustomUser.objects.create_user(
             auth_uid="audit-regular",
@@ -95,6 +117,9 @@ class AuditLogTests(TestCase):
         )
         LogsAuditoria.objects.create(usuario=admin, accion="CATALOG_IMPORTED", entidad="collection-import")
         LogsAuditoria.objects.create(usuario=admin, accion="REPORTS_ACCESSED", entidad="reports-summary")
+        call_command("seed_roles", verbosity=0)
+        admin_role = Role.objects.get(name="administrador_biblioteca")
+        self.assign_scoped_role(admin, library, admin_role)
         client = APIClient()
         client.force_authenticate(user=admin)
 
@@ -107,14 +132,12 @@ class AuditLogTests(TestCase):
         self.assertEqual(client.get("/api/v1/admin/auditoria/").status_code, 403)
 
     def test_audit_query_rejects_invalid_date_filter(self):
-        admin = CustomUser.objects.create_user(
-            auth_uid="audit-date-admin",
-            email="audit-date-admin@example.com",
-            nombre="Audit",
-            apellidos="Admin",
-            ci="01020304075",
-            tipo_usuario="ADMINISTRADOR",
+        admin, library = self.create_scoped_admin(
+            "audit-date-admin", "audit-date-admin@example.com", "01020304075"
         )
+        call_command("seed_roles", verbosity=0)
+        admin_role = Role.objects.get(name="administrador_biblioteca")
+        self.assign_scoped_role(admin, library, admin_role)
         client = APIClient()
         client.force_authenticate(user=admin)
 
@@ -123,16 +146,12 @@ class AuditLogTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_catalog_import_and_report_access_use_semantic_audit_actions(self):
-        user = CustomUser.objects.create_user(
-            auth_uid="audit-semantic-admin",
-            email="audit-semantic-admin@example.com",
-            nombre="Audit",
-            apellidos="Semantic",
-            ci="01020304076",
-            tipo_usuario="ADMINISTRADOR",
+        user, library = self.create_scoped_admin(
+            "audit-semantic-admin", "audit-semantic-admin@example.com", "01020304076"
         )
         call_command("seed_roles", verbosity=0)
-        UserRole.objects.create(user=user, role=Role.objects.get(name="administrador_biblioteca"))
+        self.assign_scoped_role(user, library, Role.objects.get(name="administrador_biblioteca"))
+        self.assign_scoped_role(user, library, Role.objects.get(name="bibliotecario"))
         client = APIClient()
         client.force_authenticate(user=user)
 
@@ -154,9 +173,16 @@ class AuditLogTests(TestCase):
             ci="01020304077",
             tipo_usuario="BIBLIOTECARIO",
         )
+        library = Biblioteca.objects.create(
+            nombre="Biblioteca auditoría catálogo",
+            direccion="Calle 1",
+            responsable=user,
+        )
+        user.biblioteca = library
+        user.save(update_fields=["biblioteca"])
         call_command("seed_roles", verbosity=0)
         role = Role.objects.get(name="bibliotecario")
-        UserRole.objects.create(user=user, role=role)
+        self.assign_scoped_role(user, library, role)
         client = APIClient()
         client.force_authenticate(user=user)
 

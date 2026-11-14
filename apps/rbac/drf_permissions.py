@@ -5,6 +5,34 @@ from rest_framework.permissions import BasePermission
 from .models import RolePermission, UserRole
 
 
+def user_library_id(user):
+    if user.is_superuser or user.tipo_usuario == "SUPER_ADMIN":
+        return None
+    return user.biblioteca_id
+
+
+def has_scoped_permission(user, permission_name):
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    now = timezone.now()
+    assignments = UserRole.objects.filter(
+        user=user,
+        role__role_permissions__permission__name=permission_name,
+        role__role_permissions__allow=True,
+    ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+    if user.tipo_usuario == "SUPER_ADMIN":
+        return assignments.exists()
+    library_id = user_library_id(user)
+    if not library_id:
+        return False
+    return assignments.filter(
+        resource_type="biblioteca",
+        resource_id=str(library_id),
+    ).exists()
+
+
 class HasRBACManagementPermission(BasePermission):
     message = "Se requiere el rol Super-Admin y el permiso admin.manage."
 
@@ -47,14 +75,7 @@ class HasCatalogPermission(BasePermission):
         if not permission_name:
             return False
 
-        return RolePermission.objects.filter(
-            role__user_roles__user=user,
-            permission__name=permission_name,
-            allow=True,
-        ).filter(
-            Q(role__user_roles__expires_at__isnull=True)
-            | Q(role__user_roles__expires_at__gt=timezone.now())
-        ).exists()
+        return has_scoped_permission(user, permission_name)
 
 
 class HasLoanManagementPermission(BasePermission):
@@ -66,11 +87,4 @@ class HasLoanManagementPermission(BasePermission):
             return False
         if user.is_superuser:
             return True
-        return RolePermission.objects.filter(
-            role__user_roles__user=user,
-            permission__name="prestamos.manage",
-            allow=True,
-        ).filter(
-            Q(role__user_roles__expires_at__isnull=True)
-            | Q(role__user_roles__expires_at__gt=timezone.now())
-        ).exists()
+        return has_scoped_permission(user, "prestamos.manage")

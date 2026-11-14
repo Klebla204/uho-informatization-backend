@@ -34,10 +34,16 @@ class ReportsApiTests(TestCase):
 		self.role = Role.objects.create(name="reports_admin")
 		permission = Permission.objects.create(name="reportes.view")
 		RolePermission.objects.create(role=self.role, permission=permission)
-		UserRole.objects.create(user=self.user, role=self.role)
-
 		self.library = Biblioteca.objects.create(
 			nombre="Central", direccion="Calle 1", responsable=self.librarian
+		)
+		self.user.biblioteca = self.library
+		self.user.save(update_fields=["biblioteca"])
+		UserRole.objects.create(
+			user=self.user,
+			role=self.role,
+			resource_type="biblioteca",
+			resource_id=str(self.library.id),
 		)
 		other_library = Biblioteca.objects.create(
 			nombre="Tecnica", direccion="Calle 2", responsable=self.librarian

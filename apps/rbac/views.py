@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import status, viewsets
@@ -22,6 +23,7 @@ class RBACAdminViewSet(viewsets.ModelViewSet):
     queryset = Role.objects.prefetch_related("role_permissions__permission").order_by("display_name", "name")
     http_method_names = ("get", "post", "patch", "put", "delete", "head", "options")
 
+    @transaction.atomic
     def perform_destroy(self, instance):
         if instance.is_system:
             raise ValidationError({"detail": "Los roles predefinidos no se pueden eliminar."})
@@ -66,6 +68,15 @@ class UserRoleAssignmentViewSet(viewsets.ModelViewSet):
             ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
             if instance.user_id == self.request.user.id or active_super_admins.count() <= 1:
                 raise ValidationError({"detail": "No se puede retirar la última asignación activa de Super-Admin ni la propia."})
+        if instance.resource_type == "biblioteca" and instance.user.tipo_usuario in {"BIBLIOTECARIO", "ADMINISTRADOR"}:
+            remaining = UserRole.objects.filter(
+                user=instance.user,
+                resource_type="biblioteca",
+                resource_id=instance.resource_id,
+            ).exclude(pk=instance.pk).exists()
+            if not remaining and str(instance.user.biblioteca_id) == instance.resource_id:
+                instance.user.biblioteca = None
+                instance.user.save(update_fields=["biblioteca"])
         instance.delete()
 
 
@@ -76,6 +87,9 @@ class UserDirectoryView(APIView):
     def get(self, request):
         term = request.query_params.get("q", "").strip()
         users = User.objects.filter(is_active=True, estado="ACTIVO")
+        user_type = request.query_params.get("tipo_usuario")
+        if user_type in {"BIBLIOTECARIO", "ADMINISTRADOR"}:
+            users = users.filter(tipo_usuario=user_type)
         if term:
             users = users.filter(
                 Q(auth_uid__icontains=term)

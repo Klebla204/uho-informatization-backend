@@ -71,6 +71,7 @@ class LoginView(APIView):
             "nombre": user.nombre,
             "apellidos": user.apellidos,
             "tipo_usuario": user.tipo_usuario,
+            "biblioteca": str(user.biblioteca_id) if user.biblioteca_id else None,
             "is_staff": user.is_staff,
             "roles": active_roles,
         })

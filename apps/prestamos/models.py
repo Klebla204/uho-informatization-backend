@@ -31,7 +31,7 @@ class Prestamo(models.Model):
     fecha_solicitud = models.DateTimeField(auto_now_add=True)
     fecha_aprobacion = models.DateTimeField(null=True, blank=True)
     fecha_recogida_limite = models.DateTimeField(null=True, blank=True)
-    fecha_devolucion_pactada = models.DateTimeField()
+    fecha_devolucion_pactada = models.DateTimeField(null=True, blank=True)
     fecha_devolucion_real = models.DateTimeField(null=True, blank=True)
     estado = models.CharField(max_length=12, choices=STATUS_CHOICES, default="PENDIENTE")
     observaciones = models.TextField(blank=True)

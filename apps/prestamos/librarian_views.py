@@ -11,6 +11,7 @@ from apps.users.models import CustomUser
 
 from .librarian_serializers import (
     ApproveLoanSerializer,
+    CollectLoanSerializer,
     CounterLoanSerializer,
     LoanActionResponseSerializer,
     RejectLoanSerializer,
@@ -66,9 +67,16 @@ class MarkLoanReadyView(LibrarianLoanActionView):
 
 
 class CollectLoanView(LibrarianLoanActionView):
-    @extend_schema(request=None, responses=LoanActionResponseSerializer)
+    @extend_schema(request=CollectLoanSerializer, responses=LoanActionResponseSerializer)
     def post(self, request, loan_id):
-        return self._execute(collect_loan, request, loan_id)
+        serializer = CollectLoanSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return self._execute(
+            collect_loan,
+            request,
+            loan_id,
+            due_date=serializer.validated_data["fecha_devolucion_pactada"],
+        )
 
 
 class ReturnLoanView(LibrarianLoanActionView):
@@ -92,6 +100,8 @@ class CounterLoanView(APIView):
             return Response({"detail": "El usuario no existe o no está activo."}, status=status.HTTP_404_NOT_FOUND)
         if library is None:
             return Response({"detail": "La biblioteca no existe o está inactiva."}, status=status.HTTP_404_NOT_FOUND)
+        if request.user.biblioteca_id and request.user.biblioteca_id != library.id:
+            return Response({"detail": "Solo puedes registrar préstamos para tu sede."}, status=status.HTTP_403_FORBIDDEN)
         try:
             loan = create_counter_loan(
                 user=user,

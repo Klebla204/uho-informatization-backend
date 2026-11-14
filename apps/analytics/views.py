@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.catalogo.models import Biblioteca
-from apps.rbac.models import RolePermission
+from apps.rbac.drf_permissions import has_scoped_permission, user_library_id
 
 from .report_services import build_report_data
 
@@ -23,15 +23,7 @@ class CanViewReports(BasePermission):
 			return False
 		if user.is_superuser:
 			return True
-		now = timezone.now()
-		return RolePermission.objects.filter(
-			role__user_roles__user=user,
-			permission__name="reportes.view",
-			allow=True,
-		).filter(
-			Q(role__user_roles__expires_at__isnull=True)
-			| Q(role__user_roles__expires_at__gt=now)
-		).exists()
+		return has_scoped_permission(user, "reportes.view")
 
 
 class ReportsBaseView(APIView):
@@ -47,6 +39,11 @@ class ReportsBaseView(APIView):
 			raise ValueError("La fecha inicial debe ser anterior o igual a la fecha final.")
 
 		library_id = request.query_params.get("biblioteca") or None
+		assigned_library = user_library_id(request.user)
+		if assigned_library:
+			if library_id and str(assigned_library) != library_id:
+				raise ValueError("Solo puedes consultar reportes de tu sede.")
+			library_id = str(assigned_library)
 		if library_id:
 			try:
 				library_id = uuid.UUID(library_id)

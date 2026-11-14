@@ -12,7 +12,7 @@ class LoanRequestError(Exception):
 
 
 @transaction.atomic
-def request_loan(*, user, book_id, due_date, library_id=None, observations=""):
+def request_loan(*, user, book_id, library_id=None, observations=""):
     if user.estado != "ACTIVO" or not user.is_active:
         raise LoanRequestError("El usuario no está activo.")
     if not profile_complete(user):
@@ -48,14 +48,10 @@ def request_loan(*, user, book_id, due_date, library_id=None, observations=""):
     if not copy:
         raise LoanRequestError("No hay ejemplares disponibles para este libro.")
 
-    if due_date <= timezone.now():
-        raise LoanRequestError("La fecha de devolución debe ser futura.")
-
     return Prestamo.objects.create(
         usuario=user,
         ejemplar=copy,
         biblioteca=copy.biblioteca,
-        fecha_devolucion_pactada=due_date,
         estado="PENDIENTE",
         observaciones=observations,
     )

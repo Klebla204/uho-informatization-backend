@@ -109,14 +109,16 @@ class CatalogApiTests(APITestCase):
             ci="01020304054",
             tipo_usuario="BIBLIOTECARIO",
         )
-        library = Biblioteca.objects.create(nombre="Central", direccion="Calle 1", responsable=user)
+        self.library = Biblioteca.objects.create(nombre="Central", direccion="Calle 1", responsable=user)
+        user.biblioteca = self.library
+        user.save(update_fields=["biblioteca"])
         publisher = Editorial.objects.create(nombre="Editorial UHO")
         author = Autor.objects.create(nombre="Ana", apellidos="Gonzalez")
         category = Categoria.objects.create(nombre="Ciencias")
         self.book = Libro.objects.create(titulo="Ciencias para todos", editorial=publisher)
         self.book.autores.add(author)
         self.book.categorias.add(category)
-        Ejemplar.objects.create(libro=self.book, biblioteca=library, codigo_ejemplar="API-001")
+        Ejemplar.objects.create(libro=self.book, biblioteca=self.library, codigo_ejemplar="API-001")
 
     def test_public_catalog_lists_available_book(self):
         response = self.client.get(
@@ -201,7 +203,9 @@ class CatalogApiTests(APITestCase):
         role = Role.objects.create(name="bibliotecario", display_name="Bibliotecario")
         permission = Permission.objects.create(name="catalogo.manage")
         RolePermission.objects.create(role=role, permission=permission)
-        UserRole.objects.create(user=user, role=role)
+        user.biblioteca = self.library
+        user.save(update_fields=["biblioteca"])
+        UserRole.objects.create(user=user, role=role, resource_type="biblioteca", resource_id=str(self.library.id))
         self.client.force_authenticate(user=user)
 
         response = self.client.post(
@@ -212,6 +216,60 @@ class CatalogApiTests(APITestCase):
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["apellidos"], "Bibliotecario")
+
+    def test_librarian_creates_book_with_initial_copies_at_own_library(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="catalog-book-manager",
+            email="book-manager@example.com",
+            nombre="Catalog",
+            apellidos="Book Manager",
+            ci="01020304081",
+            tipo_usuario="BIBLIOTECARIO",
+            biblioteca=self.library,
+        )
+        role = Role.objects.create(name="catalog-book-manager")
+        permission = Permission.objects.create(name="catalogo.manage")
+        RolePermission.objects.create(role=role, permission=permission)
+        UserRole.objects.create(
+            user=user,
+            role=role,
+            resource_type="biblioteca",
+            resource_id=str(self.library.id),
+        )
+        self.client.force_authenticate(user=user)
+
+        payload = {
+            "titulo": "Libro con inventario inicial",
+            "editorial": str(self.book.editorial_id),
+            "autores": [str(self.book.autores.first().id)],
+            "categorias": [str(self.book.categorias.first().id)],
+            "activo": True,
+        }
+        empty_stock_response = self.client.post(
+            "/api/v1/admin/catalogo/libros/",
+            {**payload, "cantidad_ejemplares": 0},
+            format="json",
+        )
+        self.assertEqual(empty_stock_response.status_code, 400)
+        self.assertFalse(Libro.objects.filter(titulo=payload["titulo"]).exists())
+
+        response = self.client.post(
+            "/api/v1/admin/catalogo/libros/",
+            {**payload, "cantidad_ejemplares": 3},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.json())
+        created_book = Libro.objects.get(titulo="Libro con inventario inicial")
+        copies = created_book.ejemplares.all()
+        self.assertEqual(copies.count(), 3)
+        self.assertEqual(set(copies.values_list("biblioteca_id", flat=True)), {self.library.id})
+        public_response = self.client.get(
+            reverse("libro_list"),
+            {"q": "Libro con inventario inicial", "disponibilidad": "disponible"},
+        )
+        self.assertEqual(public_response.status_code, 200)
+        self.assertEqual(public_response.json()[0]["ejemplares_disponibles"], 3)
 
     def test_deleting_book_archives_it_and_keeps_copies(self):
         user = CustomUser.objects.create_user(
@@ -225,7 +283,9 @@ class CatalogApiTests(APITestCase):
         role = Role.objects.create(name="catalog-archiver", display_name="Catalog Archiver")
         permission = Permission.objects.create(name="catalogo.manage")
         RolePermission.objects.create(role=role, permission=permission)
-        UserRole.objects.create(user=user, role=role)
+        user.biblioteca = self.book.ejemplares.first().biblioteca
+        user.save(update_fields=["biblioteca"])
+        UserRole.objects.create(user=user, role=role, resource_type="biblioteca", resource_id=str(user.biblioteca_id))
         self.client.force_authenticate(user=user)
 
         response = self.client.delete(f"/api/v1/admin/catalogo/libros/{self.book.id}/")
@@ -248,7 +308,9 @@ class CatalogApiTests(APITestCase):
         role = Role.objects.create(name="copy-reader", display_name="Copy Reader")
         permission = Permission.objects.create(name="catalogo.view")
         RolePermission.objects.create(role=role, permission=permission)
-        UserRole.objects.create(user=user, role=role)
+        user.biblioteca = self.book.ejemplares.first().biblioteca
+        user.save(update_fields=["biblioteca"])
+        UserRole.objects.create(user=user, role=role, resource_type="biblioteca", resource_id=str(user.biblioteca_id))
         self.client.force_authenticate(user=user)
 
         response = self.client.get(
@@ -358,10 +420,17 @@ class CatalogApiTests(APITestCase):
             ci="01020304059",
             tipo_usuario="ADMINISTRADOR",
         )
+        user.biblioteca = self.library
+        user.save(update_fields=["biblioteca"])
         role = Role.objects.create(name="import-template-admin")
         permission = Permission.objects.create(name="catalogo.manage")
         RolePermission.objects.create(role=role, permission=permission)
-        UserRole.objects.create(user=user, role=role)
+        UserRole.objects.create(
+            user=user,
+            role=role,
+            resource_type="biblioteca",
+            resource_id=str(self.library.id),
+        )
         self.client.force_authenticate(user=user)
 
         response = self.client.get("/api/v1/admin/catalogo/plantilla/")
@@ -380,10 +449,17 @@ class CatalogApiTests(APITestCase):
             ci="01020304060",
             tipo_usuario="ADMINISTRADOR",
         )
+        user.biblioteca = self.library
+        user.save(update_fields=["biblioteca"])
         role = Role.objects.create(name="import-file-admin")
         permission = Permission.objects.create(name="catalogo.manage")
         RolePermission.objects.create(role=role, permission=permission)
-        UserRole.objects.create(user=user, role=role)
+        UserRole.objects.create(
+            user=user,
+            role=role,
+            resource_type="biblioteca",
+            resource_id=str(self.library.id),
+        )
         self.client.force_authenticate(user=user)
 
         response = self.client.post(
@@ -404,10 +480,17 @@ class CatalogApiTests(APITestCase):
             ci="01020304061",
             tipo_usuario="ADMINISTRADOR",
         )
+        user.biblioteca = self.library
+        user.save(update_fields=["biblioteca"])
         role = Role.objects.create(name="import-upload-admin")
         permission = Permission.objects.create(name="catalogo.manage")
         RolePermission.objects.create(role=role, permission=permission)
-        UserRole.objects.create(user=user, role=role)
+        UserRole.objects.create(
+            user=user,
+            role=role,
+            resource_type="biblioteca",
+            resource_id=str(self.library.id),
+        )
         self.client.force_authenticate(user=user)
 
         workbook = Workbook()

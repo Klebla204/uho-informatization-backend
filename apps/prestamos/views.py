@@ -22,7 +22,6 @@ class LoanRequestView(APIView):
                 user=request.user,
                 book_id=serializer.validated_data["libro"],
                 library_id=serializer.validated_data.get("biblioteca"),
-                due_date=serializer.validated_data["fecha_devolucion_pactada"],
                 observations=serializer.validated_data.get("observaciones", ""),
             )
         except LoanRequestError as error:

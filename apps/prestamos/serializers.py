@@ -21,8 +21,7 @@ class UserLookupSerializer(serializers.ModelSerializer):
 
 class LoanRequestSerializer(serializers.Serializer):
     libro = serializers.UUIDField()
-    biblioteca = serializers.UUIDField(required=False, allow_null=True)
-    fecha_devolucion_pactada = serializers.DateTimeField()
+    biblioteca = serializers.UUIDField()
     observaciones = serializers.CharField(required=False, allow_blank=True)
 
 

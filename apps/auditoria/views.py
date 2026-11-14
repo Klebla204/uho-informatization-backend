@@ -6,7 +6,8 @@ from rest_framework.generics import ListAPIView
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from apps.rbac.models import RolePermission
+from apps.rbac.drf_permissions import has_scoped_permission
+from apps.rbac.drf_permissions import user_library_id
 
 from .models import LogsAuditoria
 from .serializers import AuditLogSerializer
@@ -21,17 +22,7 @@ class CanViewAuditLogs(BasePermission):
             return False
         if user.is_superuser:
             return True
-        now = timezone.now()
-        if user.tipo_usuario in {"ADMINISTRADOR", "SUPER_ADMIN"}:
-            return True
-        return RolePermission.objects.filter(
-            role__user_roles__user=user,
-            permission__name="auditoria.view",
-            allow=True,
-        ).filter(
-            Q(role__user_roles__expires_at__isnull=True)
-            | Q(role__user_roles__expires_at__gt=now)
-        ).exists()
+        return has_scoped_permission(user, "auditoria.view")
 
 
 class AuditLogListView(ListAPIView):
@@ -41,6 +32,9 @@ class AuditLogListView(ListAPIView):
 
     def get_queryset(self):
         queryset = LogsAuditoria.objects.select_related("usuario").order_by("-timestamp")
+        library_id = user_library_id(self.request.user)
+        if library_id:
+            queryset = queryset.filter(usuario__biblioteca_id=library_id)
         action = self.request.query_params.get("accion")
         entity = self.request.query_params.get("entidad")
         user_id = self.request.query_params.get("usuario")

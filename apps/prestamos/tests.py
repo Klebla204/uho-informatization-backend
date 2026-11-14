@@ -111,6 +111,8 @@ class OnlineLoanRequestApiTests(APITestCase):
             tipo_usuario="BIBLIOTECARIO",
         )
         self.library = Biblioteca.objects.create(nombre="Central", direccion="Calle 1", responsable=librarian)
+        librarian.biblioteca = self.library
+        librarian.save(update_fields=["biblioteca"])
         publisher = Editorial.objects.create(nombre="Editorial UHO")
         self.book = Libro.objects.create(titulo="Libro solicitado", editorial=publisher)
         self.copy = Ejemplar.objects.create(
@@ -126,14 +128,64 @@ class OnlineLoanRequestApiTests(APITestCase):
             {
                 "libro": str(self.book.id),
                 "biblioteca": str(self.library.id),
-                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["estado"], "PENDIENTE")
+        self.assertEqual(response.json()["biblioteca"], str(self.library.id))
+        self.assertEqual(response.json()["ejemplar"], str(self.copy.id))
         self.assertIsNone(response.json()["bibliotecario"])
+        self.assertIsNone(response.json()["fecha_devolucion_pactada"])
+
+    def test_request_requires_library(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("loan_request"),
+            {
+                "libro": str(self.book.id),
+                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("biblioteca", response.json())
+
+    def test_request_uses_copy_from_selected_library(self):
+        other_librarian = CustomUser.objects.create_user(
+            auth_uid="other-library-librarian",
+            email="other-library-librarian@example.com",
+            nombre="Luis",
+            apellidos="Soto",
+            ci="01020304064",
+            tipo_usuario="BIBLIOTECARIO",
+        )
+        other_library = Biblioteca.objects.create(
+            nombre="Facultad Técnica", direccion="Calle 2", responsable=other_librarian
+        )
+        other_copy = Ejemplar.objects.create(
+            libro=self.book,
+            biblioteca=other_library,
+            codigo_ejemplar="LOAN-OTHER-001",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(
+            reverse("loan_request"),
+            {
+                "libro": str(self.book.id),
+                "biblioteca": str(other_library.id),
+                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["biblioteca"], str(other_library.id))
+        self.assertEqual(response.json()["ejemplar"], str(other_copy.id))
 
     def test_request_returns_conflict_when_no_copy_is_available(self):
         self.copy.estado = "PRESTADO"
@@ -144,6 +196,7 @@ class OnlineLoanRequestApiTests(APITestCase):
             reverse("loan_request"),
             {
                 "libro": str(self.book.id),
+                "biblioteca": str(self.library.id),
                 "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
             },
             format="json",
@@ -160,6 +213,7 @@ class OnlineLoanRequestApiTests(APITestCase):
             reverse("loan_request"),
             {
                 "libro": str(self.book.id),
+                "biblioteca": str(self.library.id),
                 "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
             },
             format="json",
@@ -174,7 +228,12 @@ class OnlineLoanRequestApiTests(APITestCase):
         from django.core.management import call_command
 
         call_command("seed_roles", verbosity=0)
-        UserRole.objects.create(user=librarian, role=Role.objects.get(name="bibliotecario"))
+        UserRole.objects.create(
+            user=librarian,
+            role=Role.objects.get(name="bibliotecario"),
+            resource_type="biblioteca",
+            resource_id=str(librarian.biblioteca_id),
+        )
         self.client.force_authenticate(user=librarian)
 
         by_id = self.client.get(reverse("user_lookup"), {"q": str(self.user.id)}).json()
@@ -183,12 +242,55 @@ class OnlineLoanRequestApiTests(APITestCase):
         self.assertEqual([u["auth_uid"] for u in by_id], ["api-borrower"])
         self.assertEqual([u["auth_uid"] for u in by_ci], ["api-borrower"])
 
+    def test_librarian_lookup_includes_borrowers_without_library_but_hides_other_staff(self):
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        other_librarian = CustomUser.objects.create_user(
+            auth_uid="other-library-librarian",
+            email="other-library-librarian@example.com",
+            nombre="Other",
+            apellidos="Librarian",
+            ci="01020304080",
+            tipo_usuario="BIBLIOTECARIO",
+        )
+        other_library = Biblioteca.objects.create(
+            nombre="Otra sede",
+            direccion="Calle 2",
+            responsable=other_librarian,
+        )
+        other_librarian.biblioteca = other_library
+        other_librarian.save(update_fields=["biblioteca"])
+        from apps.rbac.models import Role, UserRole
+        from django.core.management import call_command
+
+        call_command("seed_roles", verbosity=0)
+        librarian_role = Role.objects.get(name="bibliotecario")
+        UserRole.objects.create(
+            user=librarian,
+            role=librarian_role,
+            resource_type="biblioteca",
+            resource_id=str(librarian.biblioteca_id),
+        )
+        UserRole.objects.create(
+            user=other_librarian,
+            role=librarian_role,
+            resource_type="biblioteca",
+            resource_id=str(other_library.id),
+        )
+        self.client.force_authenticate(user=librarian)
+
+        response = self.client.get(reverse("user_lookup"), {"q": "api-"})
+        auth_uids = {user["auth_uid"] for user in response.json()}
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("api-borrower", auth_uids)
+        self.assertNotIn("other-library-librarian", auth_uids)
+
     def test_duplicate_request_for_same_book_is_rejected(self):
         Ejemplar.objects.create(libro=self.book, biblioteca=self.library, codigo_ejemplar="LOAN-002")
         self.client.force_authenticate(user=self.user)
         payload = {
             "libro": str(self.book.id),
-            "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+            "biblioteca": str(self.library.id),
         }
 
         first = self.client.post(reverse("loan_request"), payload, format="json")
@@ -205,14 +307,15 @@ class OnlineLoanRequestApiTests(APITestCase):
             reverse("loan_request"),
             {
                 "libro": str(self.book.id),
-                "fecha_devolucion_pactada": (timezone.now() + timedelta(days=14)).isoformat(),
+                "biblioteca": str(self.library.id),
             },
             format="json",
         )
         self.assertEqual(request_response.status_code, 201)
+        self.assertIsNone(request_response.json()["fecha_devolucion_pactada"])
         loan_id = request_response.json()["id"]
         librarian = CustomUser.objects.get(auth_uid="api-librarian")
-        self._grant_librarian_permission(librarian)
+        self._grant_librarian_permission(librarian, self.library)
         self.client.force_authenticate(user=librarian)
 
         approve_response = self.client.post(
@@ -222,14 +325,32 @@ class OnlineLoanRequestApiTests(APITestCase):
         )
         self.assertEqual(approve_response.status_code, 200)
         self.assertEqual(approve_response.json()["estado"], "LISTO")
+        self.assertIsNone(approve_response.json()["fecha_devolucion_pactada"])
         approval_log = LogsAuditoria.objects.get(accion="LOAN_APPROVED", entidad="loan_approve")
         self.assertEqual(approval_log.entidad_id, loan_id)
         self.assertEqual(approval_log.datos_anteriores, {"estado": "PENDIENTE"})
         self.assertEqual(approval_log.datos_nuevos, {"estado": "LISTO"})
 
-        collect_response = self.client.post(reverse("loan_collect", kwargs={"loan_id": loan_id}))
+        collect_url = reverse("loan_collect", kwargs={"loan_id": loan_id})
+        missing_date_response = self.client.post(collect_url, {}, format="json")
+        self.assertEqual(missing_date_response.status_code, 400)
+
+        past_date_response = self.client.post(
+            collect_url,
+            {"fecha_devolucion_pactada": (timezone.now() - timedelta(days=1)).isoformat()},
+            format="json",
+        )
+        self.assertEqual(past_date_response.status_code, 409)
+
+        due_date = timezone.now() + timedelta(days=14)
+        collect_response = self.client.post(
+            collect_url,
+            {"fecha_devolucion_pactada": due_date.isoformat()},
+            format="json",
+        )
         self.assertEqual(collect_response.status_code, 200)
         self.assertEqual(collect_response.json()["estado"], "ACTIVO")
+        self.assertIsNotNone(collect_response.json()["fecha_devolucion_pactada"])
         self.copy.refresh_from_db()
         self.assertEqual(self.copy.estado, "PRESTADO")
 
@@ -301,7 +422,7 @@ class OnlineLoanRequestApiTests(APITestCase):
         self.assertEqual(denied.status_code, 403)
 
         librarian = CustomUser.objects.get(auth_uid="api-librarian")
-        self._grant_librarian_permission(librarian)
+        self._grant_librarian_permission(librarian, self.library)
         self.client.force_authenticate(user=librarian)
 
         allowed = self.client.get(reverse("pending_loans"))
@@ -309,9 +430,42 @@ class OnlineLoanRequestApiTests(APITestCase):
         self.assertEqual([item["id"] for item in allowed.json()], [str(loan.id)])
         self.assertEqual(allowed.json()[0]["usuario_nombre"], "Ana Perez")
 
+    def test_librarian_cannot_see_or_manage_loans_from_another_library(self):
+        other_library = Biblioteca.objects.create(
+            nombre="Tecnica", direccion="Calle 2", responsable=self.library.responsable
+        )
+        other_copy = Ejemplar.objects.create(
+            libro=self.book,
+            biblioteca=other_library,
+            codigo_ejemplar="LOAN-OTHER-LIBRARY",
+        )
+        other_loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=other_copy,
+            biblioteca=other_library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=10),
+            estado="PENDIENTE",
+        )
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian, self.library)
+        self.client.force_authenticate(user=librarian)
+
+        pending = self.client.get(reverse("pending_loans"))
+        action = self.client.post(
+            reverse("loan_approve", kwargs={"loan_id": str(other_loan.id)}),
+            {},
+            format="json",
+        )
+
+        self.assertEqual(pending.status_code, 200)
+        self.assertNotIn(str(other_loan.id), [item["id"] for item in pending.json()])
+        self.assertEqual(action.status_code, 409)
+        other_loan.refresh_from_db()
+        self.assertEqual(other_loan.estado, "PENDIENTE")
+
     def test_librarian_can_register_counter_loan(self):
         librarian = CustomUser.objects.get(auth_uid="api-librarian")
-        self._grant_librarian_permission(librarian)
+        self._grant_librarian_permission(librarian, self.library)
         self.client.force_authenticate(user=librarian)
 
         response = self.client.post(
@@ -332,13 +486,18 @@ class OnlineLoanRequestApiTests(APITestCase):
         self.assertEqual(self.copy.estado, "PRESTADO")
 
     @staticmethod
-    def _grant_librarian_permission(user):
+    def _grant_librarian_permission(user, library=None):
         from apps.rbac.models import Permission, Role, RolePermission, UserRole
 
         role = Role.objects.create(name="test-bibliotecario", display_name="Bibliotecario")
         permission = Permission.objects.create(name="prestamos.manage")
         RolePermission.objects.create(role=role, permission=permission)
-        UserRole.objects.create(user=user, role=role)
+        UserRole.objects.create(
+            user=user,
+            role=role,
+            resource_type="biblioteca" if library else None,
+            resource_id=str(library.id) if library else None,
+        )
 
 
 class DueDateNotificationTests(APITestCase):
@@ -356,8 +515,15 @@ class DueDateNotificationTests(APITestCase):
             ci="01020304072", tipo_usuario="BIBLIOTECARIO",
         )
         call_command("seed_roles", verbosity=0)
-        UserRole.objects.create(user=self.librarian, role=Role.objects.get(name="bibliotecario"))
         library = Biblioteca.objects.create(nombre="Central", direccion="Calle 1", responsable=self.librarian)
+        self.librarian.biblioteca = library
+        self.librarian.save(update_fields=["biblioteca"])
+        UserRole.objects.create(
+            user=self.librarian,
+            role=Role.objects.get(name="bibliotecario"),
+            resource_type="biblioteca",
+            resource_id=str(library.id),
+        )
         publisher = Editorial.objects.create(nombre="Editorial UHO")
         self.book = Libro.objects.create(titulo="Libro con plazo", editorial=publisher)
         self.library = library

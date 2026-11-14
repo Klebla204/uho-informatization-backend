@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from apps.rbac.drf_permissions import HasLoanManagementPermission
+from apps.rbac.drf_permissions import user_library_id
 from apps.users.models import CustomUser
 
 from .models import Notificacion, Prestamo
@@ -67,6 +68,9 @@ class PendingLoansView(ListAPIView):
         queryset = Prestamo.objects.filter(estado="PENDIENTE").select_related(
             "usuario", "ejemplar__libro", "biblioteca"
         ).order_by("fecha_solicitud")
+        assigned_library = user_library_id(self.request.user)
+        if assigned_library:
+            queryset = queryset.filter(biblioteca_id=assigned_library)
         library_id = self.request.query_params.get("biblioteca")
         if library_id:
             queryset = queryset.filter(biblioteca_id=library_id)
@@ -79,9 +83,11 @@ class RequestsInProgressView(ListAPIView):
     serializer_class = PendingLoanSerializer
 
     def get_queryset(self):
-        return Prestamo.objects.filter(
+        queryset = Prestamo.objects.filter(
             estado__in=["PENDIENTE", "APROBADO", "LISTO"]
         ).select_related("usuario", "ejemplar__libro", "biblioteca").order_by("fecha_solicitud")
+        assigned_library = user_library_id(self.request.user)
+        return queryset.filter(biblioteca_id=assigned_library) if assigned_library else queryset
 
 
 class ActiveLoansView(ListAPIView):
@@ -90,9 +96,11 @@ class ActiveLoansView(ListAPIView):
     serializer_class = PendingLoanSerializer
 
     def get_queryset(self):
-        return Prestamo.objects.filter(
+        queryset = Prestamo.objects.filter(
             estado__in=["ACTIVO", "VENCIDO"]
         ).select_related("usuario", "ejemplar__libro", "biblioteca").order_by("fecha_devolucion_pactada")
+        assigned_library = user_library_id(self.request.user)
+        return queryset.filter(biblioteca_id=assigned_library) if assigned_library else queryset
 
 
 class DueLoansView(APIView):
@@ -108,6 +116,9 @@ class DueLoansView(APIView):
     def get(self, request):
         start_today, window_end = due_windows()
         active = Prestamo.objects.filter(estado="ACTIVO").select_related("usuario", "ejemplar__libro", "biblioteca")
+        assigned_library = user_library_id(request.user)
+        if assigned_library:
+            active = active.filter(biblioteca_id=assigned_library)
         upcoming = active.filter(fecha_devolucion_pactada__gte=start_today, fecha_devolucion_pactada__lt=window_end)
         overdue = active.filter(fecha_devolucion_pactada__lt=start_today)
         return Response({
@@ -149,6 +160,12 @@ class UserLookupView(ListAPIView):
         if not term:
             return CustomUser.objects.none()
         active = CustomUser.objects.filter(is_active=True, estado="ACTIVO")
+        assigned_library = user_library_id(self.request.user)
+        if assigned_library:
+            active = active.filter(
+                Q(tipo_usuario__in=["ESTUDIANTE", "TRABAJADOR"])
+                | Q(biblioteca_id=assigned_library)
+            )
         try:
             return active.filter(id=UUID(term))
         except ValueError:

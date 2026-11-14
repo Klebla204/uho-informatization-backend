@@ -9,6 +9,10 @@ class RejectLoanSerializer(serializers.Serializer):
     motivo = serializers.CharField(required=True, allow_blank=False)
 
 
+class CollectLoanSerializer(serializers.Serializer):
+    fecha_devolucion_pactada = serializers.DateTimeField()
+
+
 class CounterLoanSerializer(serializers.Serializer):
     usuario = serializers.UUIDField()
     libro = serializers.UUIDField()

@@ -4,6 +4,7 @@ from io import BytesIO
 import uuid
 
 from django.db import transaction
+from apps.rbac.drf_permissions import user_library_id
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill
 from apps.prestamos.models import Prestamo
@@ -204,6 +205,9 @@ def import_collection(file_object, user=None):
                 authors = _authors_from_row(data)
                 copies = _parse_positive_integer(data["cantidad_ejemplares"], "cantidad_ejemplares")
                 library = Biblioteca.objects.get(nombre=_text(data["biblioteca"]), activa=True)
+                assigned_library = user_library_id(user) if user else None
+                if assigned_library and library.id != assigned_library:
+                    raise ValueError("Solo puedes importar ejemplares para tu sede")
                 active = _parse_active(data["activo"])
                 defaults = {
                     "titulo": title,

@@ -70,6 +70,13 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField(unique=True)
     telefono = EncryptedTextField(blank=True)
     tipo_usuario = models.CharField(max_length=20, choices=USER_TYPE_CHOICES)
+    biblioteca = models.ForeignKey(
+        "catalogo.Biblioteca",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="usuarios_asignados",
+    )
     estado = models.CharField(max_length=12, choices=STATUS_CHOICES, default="ACTIVO")
     fecha_registro = models.DateTimeField(auto_now_add=True)
     is_staff = models.BooleanField(default=False)
@@ -82,3 +89,14 @@ class CustomUser(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return f"{self.nombre} {self.apellidos}".strip()
+
+    def clean(self):
+        super().clean()
+        if self.tipo_usuario in {"BIBLIOTECARIO", "ADMINISTRADOR"} and not self.biblioteca_id:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError({"biblioteca": "Este tipo de usuario debe estar vinculado a una sede."})
+        if self.tipo_usuario == "SUPER_ADMIN" and self.biblioteca_id:
+            from django.core.exceptions import ValidationError
+
+            raise ValidationError({"biblioteca": "El superadministrador tiene alcance global y no se vincula a una sede."})

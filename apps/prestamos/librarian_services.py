@@ -1,6 +1,8 @@
 from django.db import transaction
 from django.utils import timezone
 
+from apps.rbac.drf_permissions import user_library_id
+
 from .models import Prestamo
 
 
@@ -11,7 +13,7 @@ class LibrarianLoanError(Exception):
 @transaction.atomic
 def approve_loan(*, loan_id, librarian, pickup_deadline=None):
     loan = _locked_loan(loan_id)
-    _require_librarian(librarian)
+    _require_librarian(librarian, loan)
     if loan.estado != "PENDIENTE":
         raise LibrarianLoanError("Solo se pueden aprobar solicitudes pendientes.")
 
@@ -26,7 +28,7 @@ def approve_loan(*, loan_id, librarian, pickup_deadline=None):
 @transaction.atomic
 def reject_loan(*, loan_id, librarian, reason):
     loan = _locked_loan(loan_id)
-    _require_librarian(librarian)
+    _require_librarian(librarian, loan)
     if loan.estado != "PENDIENTE":
         raise LibrarianLoanError("Solo se pueden rechazar solicitudes pendientes.")
 
@@ -40,7 +42,7 @@ def reject_loan(*, loan_id, librarian, reason):
 @transaction.atomic
 def mark_loan_ready(*, loan_id, librarian, pickup_deadline):
     loan = _locked_loan(loan_id)
-    _require_librarian(librarian)
+    _require_librarian(librarian, loan)
     if loan.estado != "APROBADO":
         raise LibrarianLoanError("Solo se pueden preparar solicitudes aprobadas.")
     if pickup_deadline <= timezone.now():
@@ -54,24 +56,27 @@ def mark_loan_ready(*, loan_id, librarian, pickup_deadline):
 
 
 @transaction.atomic
-def collect_loan(*, loan_id, librarian):
+def collect_loan(*, loan_id, librarian, due_date):
     loan = _locked_loan(loan_id)
-    _require_librarian(librarian)
-    if loan.estado not in {"APROBADO", "LISTO"}:
-        raise LibrarianLoanError("Solo se puede activar un préstamo aprobado o listo.")
+    _require_librarian(librarian, loan)
+    if loan.estado != "LISTO":
+        raise LibrarianLoanError("Solo se puede registrar la entrega de un préstamo listo para recoger.")
+    if due_date <= timezone.now():
+        raise LibrarianLoanError("La fecha de devolución debe ser futura.")
 
     loan.bibliotecario = librarian
+    loan.fecha_devolucion_pactada = due_date
     loan.estado = "ACTIVO"
     loan.ejemplar.estado = "PRESTADO"
     loan.ejemplar.save(update_fields=["estado"])
-    loan.save(update_fields=["bibliotecario", "estado"])
+    loan.save(update_fields=["bibliotecario", "fecha_devolucion_pactada", "estado"])
     return loan
 
 
 @transaction.atomic
 def return_loan(*, loan_id, librarian):
     loan = _locked_loan(loan_id)
-    _require_librarian(librarian)
+    _require_librarian(librarian, loan)
     if loan.estado != "ACTIVO":
         raise LibrarianLoanError("Solo se pueden devolver préstamos activos.")
 
@@ -91,6 +96,9 @@ def _locked_loan(loan_id):
         raise LibrarianLoanError("El préstamo no existe.") from error
 
 
-def _require_librarian(user):
+def _require_librarian(user, loan):
     if not user.is_authenticated or user.tipo_usuario not in {"BIBLIOTECARIO", "ADMINISTRADOR", "SUPER_ADMIN"}:
         raise LibrarianLoanError("El usuario no tiene permisos de bibliotecario.")
+    library_id = user_library_id(user)
+    if library_id and loan.biblioteca_id != library_id:
+        raise LibrarianLoanError("El préstamo pertenece a otra sede.")

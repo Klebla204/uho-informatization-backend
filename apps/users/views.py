@@ -51,6 +51,7 @@ class MyProfileView(APIView):
             "ci": user.ci,
             "telefono": user.telefono,
             "tipo_usuario": user.tipo_usuario,
+            "biblioteca": str(user.biblioteca_id) if user.biblioteca_id else None,
             "perfil": profile,
             "perfil_completo": profile_complete(user),
         }

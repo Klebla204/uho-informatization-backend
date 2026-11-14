@@ -4,6 +4,8 @@ from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
 
+from apps.catalogo.models import Biblioteca
+
 from .models import Permission, Role, RolePermission, UserRole
 
 User = get_user_model()
@@ -97,13 +99,58 @@ class RoleSerializer(serializers.ModelSerializer):
 class UserRoleAssignmentSerializer(serializers.ModelSerializer):
     role_name = serializers.CharField(source="role.name", read_only=True)
     role_display_name = serializers.CharField(source="role.display_name", read_only=True)
+    biblioteca = serializers.PrimaryKeyRelatedField(
+        queryset=Biblioteca.objects.filter(activa=True),
+        required=False,
+        write_only=True,
+    )
 
     class Meta:
         model = UserRole
-        fields = ("id", "user", "role", "role_name", "role_display_name", "resource_type", "resource_id", "expires_at", "assigned_at", "assigned_by")
+        fields = ("id", "user", "role", "role_name", "role_display_name", "resource_type", "resource_id", "biblioteca", "expires_at", "assigned_at", "assigned_by")
         read_only_fields = ("id", "assigned_at", "assigned_by", "role_name", "role_display_name")
 
     def validate(self, attrs):
+        user = attrs.get("user", getattr(self.instance, "user", None))
+        role = attrs.get("role", getattr(self.instance, "role", None))
+        if role and user:
+            if user.tipo_usuario == "SUPER_ADMIN" and role.name != "super_admin":
+                raise serializers.ValidationError({"role": "Una cuenta Super-Admin solo puede tener el rol Super-Admin."})
+            if role.name == "super_admin" and user.tipo_usuario != "SUPER_ADMIN":
+                raise serializers.ValidationError({"user": "El rol Super-Admin solo puede asignarse a una cuenta Super-Admin."})
+            can_promote_student = role.name == "bibliotecario" and user.tipo_usuario == "ESTUDIANTE"
+            can_change_staff_role = role.name in {"bibliotecario", "administrador_biblioteca"} and user.tipo_usuario in {"BIBLIOTECARIO", "ADMINISTRADOR"}
+            can_return_to_student = role.name == "estudiante" and user.tipo_usuario == "BIBLIOTECARIO"
+            if role.name in {"bibliotecario", "administrador_biblioteca"} and not (can_change_staff_role or can_promote_student):
+                raise serializers.ValidationError({"user": "Este rol solo puede asignarse a bibliotecarios o administradores."})
+            if role.name == "estudiante" and user.tipo_usuario not in {"ESTUDIANTE", "BIBLIOTECARIO"}:
+                raise serializers.ValidationError({"user": "Solo un estudiante o bibliotecario puede tener el rol estudiante."})
+            requires_library = user.tipo_usuario in {"BIBLIOTECARIO", "ADMINISTRADOR"} and role.name in {"bibliotecario", "administrador_biblioteca"}
+            if requires_library:
+                if role.name == "super_admin":
+                    raise serializers.ValidationError({"role": "Un usuario vinculado a sede no puede tener alcance Super-Admin."})
+                if attrs.get("resource_type") not in (None, "biblioteca"):
+                    raise serializers.ValidationError({"resource_type": "El rol debe limitarse a una biblioteca."})
+                requested_library = attrs.get("biblioteca")
+                if requested_library:
+                    resource_id = attrs.get("resource_id")
+                    if resource_id and resource_id != str(requested_library.id):
+                        raise serializers.ValidationError({"resource_id": "El alcance debe coincidir con la sede seleccionada."})
+                    attrs["resource_type"] = "biblioteca"
+                    attrs["resource_id"] = str(requested_library.id)
+                elif user.biblioteca_id:
+                    attrs["resource_type"] = "biblioteca"
+                    attrs["resource_id"] = str(user.biblioteca_id)
+                else:
+                    attrs["resource_type"] = None
+                    attrs["resource_id"] = None
+            else:
+                attrs.pop("biblioteca", None)
+                attrs["resource_type"] = None
+                attrs["resource_id"] = None
+            if can_return_to_student:
+                attrs["resource_type"] = None
+                attrs["resource_id"] = None
         attrs.setdefault("resource_type", None)
         attrs.setdefault("resource_id", None)
         queryset = UserRole.objects.filter(
@@ -115,12 +162,79 @@ class UserRoleAssignmentSerializer(serializers.ModelSerializer):
         if self.instance:
             queryset = queryset.exclude(pk=self.instance.pk)
         if queryset.exists():
-            raise serializers.ValidationError("Esta asignación de rol ya existe.")
+            has_other_roles = UserRole.objects.filter(user=user).exclude(role=role).exists()
+            target_type = user.tipo_usuario
+            if role.name == "bibliotecario" and user.tipo_usuario in {"ESTUDIANTE", "ADMINISTRADOR"}:
+                target_type = "BIBLIOTECARIO"
+            elif role.name == "administrador_biblioteca" and user.tipo_usuario == "BIBLIOTECARIO":
+                target_type = "ADMINISTRADOR"
+            elif role.name == "estudiante" and user.tipo_usuario == "BIBLIOTECARIO":
+                target_type = "ESTUDIANTE"
+            if target_type == user.tipo_usuario and not has_other_roles:
+                raise serializers.ValidationError("Esta asignación de rol ya existe.")
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data):
+        library = validated_data.pop("biblioteca", None)
+        user = validated_data["user"]
+        role = validated_data["role"]
+        existing_assignment = UserRole.objects.filter(
+            user=user,
+            role=role,
+            resource_type=validated_data.get("resource_type"),
+            resource_id=validated_data.get("resource_id"),
+        ).first()
+        current_type = user.tipo_usuario
+        target_type = current_type
+        if role.name == "bibliotecario" and current_type in {"ESTUDIANTE", "ADMINISTRADOR"}:
+            target_type = "BIBLIOTECARIO"
+        elif role.name == "administrador_biblioteca" and current_type == "BIBLIOTECARIO":
+            target_type = "ADMINISTRADOR"
+        elif role.name == "estudiante" and current_type == "BIBLIOTECARIO":
+            target_type = "ESTUDIANTE"
+
+        if target_type != current_type:
+            if target_type == "ESTUDIANTE":
+                UserRole.objects.filter(user=user, resource_type="biblioteca").delete()
+                user.tipo_usuario = target_type
+                user.biblioteca = None
+                user.save(update_fields=["tipo_usuario", "biblioteca"])
+            else:
+                user.tipo_usuario = target_type
+                user.save(update_fields=["tipo_usuario"])
+        previous_assignments = UserRole.objects.filter(user=user)
+        if existing_assignment:
+            previous_assignments.exclude(role=role).delete()
+            return existing_assignment
+        previous_assignments.exclude(role=role).delete()
+        if library:
+            UserRole.objects.filter(
+                user=user,
+                role=validated_data["role"],
+                resource_type__isnull=True,
+                resource_id__isnull=True,
+            ).delete()
+            if user.biblioteca_id and user.biblioteca_id != library.id:
+                UserRole.objects.filter(
+                    user=user,
+                    resource_type="biblioteca",
+                    resource_id=str(user.biblioteca_id),
+                ).delete()
+            user.biblioteca = library
+            user.save(update_fields=["biblioteca"])
         validated_data["assigned_by"] = self.context["request"].user
         return super().create(validated_data)
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        library = validated_data.pop("biblioteca", None)
+        if library:
+            instance.user.biblioteca = library
+            instance.user.save(update_fields=["biblioteca"])
+        assignment = super().update(instance, validated_data)
+        UserRole.objects.filter(user=assignment.user).exclude(role=assignment.role).delete()
+        return assignment
 
 
 class UserSummarySerializer(serializers.ModelSerializer):
@@ -128,7 +242,7 @@ class UserSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ("id", "auth_uid", "nombre", "apellidos", "email", "tipo_usuario", "estado", "is_active", "roles")
+        fields = ("id", "auth_uid", "nombre", "apellidos", "email", "tipo_usuario", "biblioteca", "estado", "is_active", "roles")
         read_only_fields = fields
 
     def get_roles(self, user):
