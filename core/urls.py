@@ -33,6 +33,7 @@ urlpatterns = [
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema")),
     path("api/v1/", include("apps.catalogo.urls")),
     path("api/v1/admin/catalogo/", include("apps.catalogo.crud_urls")),
+    path("api/v1/admin/nomencladores/", include("apps.academics.admin_urls")),
     path("api/v1/admin/rbac/", include("apps.rbac.urls")),
     path("api/v1/reportes/", include("apps.analytics.urls")),
     path("api/v1/admin/auditoria/", include("apps.auditoria.urls")),

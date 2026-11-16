@@ -147,7 +147,8 @@ Estado contrastado con el documento [Sistema Integrado de Gestión de Préstamos
 - [x] API pública de libros, detalle, filtros y disponibilidad por biblioteca (RF-01, RF-02).
 - [x] CRUD administrativo de libros, ejemplares, autores, categorías, editoriales y bibliotecas (RF-10).
 - [x] Importación Excel con plantilla, validación por fila y límite de 1000 filas (RF-11).
-- [ ] Parcial: CRUD completo de nomencladores académicos y laborales (facultades, carreras, cargos y departamentos) desde administración (RF-12).
+- [x] CRUD administrativo protegido de facultades, carreras y cargos con desactivación lógica (RF-12).
+- [ ] Parcial: faltan departamentos y la administración de tipos de curso/usuario como nomencladores independientes (RF-12).
 - [ ] Pendiente: almacenar y servir portadas y archivos en almacenamiento de objetos configurable (RF-02, arquitectura sugerida).
 
 ### E4-E5: Préstamos y notificaciones
