@@ -1,13 +1,64 @@
 from django.db import transaction
 from django.utils import timezone
 
+from apps.catalogo.models import Libro
 from apps.rbac.drf_permissions import user_library_id
 
-from .models import Prestamo
+from .models import ListaEspera, Notificacion, Prestamo, RenovacionPrestamo
 
 
 class LibrarianLoanError(Exception):
     pass
+
+
+@transaction.atomic
+def decide_renewal(*, renewal_id, librarian, approve, due_date=None, reason=""):
+    try:
+        renewal = RenovacionPrestamo.objects.select_for_update().select_related(
+            "prestamo__ejemplar__libro", "prestamo__usuario", "prestamo__biblioteca"
+        ).get(id=renewal_id)
+    except RenovacionPrestamo.DoesNotExist as error:
+        raise LibrarianLoanError("La solicitud de renovación no existe.") from error
+
+    loan = renewal.prestamo
+    _require_librarian(librarian, loan)
+    book = Libro.objects.select_for_update().get(id=loan.ejemplar.libro_id)
+    if renewal.estado != "PENDIENTE":
+        raise LibrarianLoanError("La solicitud de renovación ya fue procesada.")
+    if loan.estado != "ACTIVO":
+        raise LibrarianLoanError("Solo se puede procesar la renovación de un préstamo activo.")
+
+    now = timezone.now()
+    renewal.bibliotecario = librarian
+    renewal.fecha_procesamiento = now
+    if approve:
+        if due_date is None or due_date <= now:
+            raise LibrarianLoanError("La nueva fecha de devolución debe ser futura.")
+        if Prestamo.objects.filter(
+            ejemplar__libro=book,
+            estado__in={"PENDIENTE", "APROBADO", "LISTO"},
+        ).exists():
+            raise LibrarianLoanError("No se puede aprobar: hay reservas pendientes para este título.")
+        renewal.estado = "APROBADA"
+        renewal.fecha_devolucion_propuesta = due_date
+        loan.fecha_devolucion_pactada = due_date
+        loan.save(update_fields=["fecha_devolucion_pactada"])
+        message = f'La renovación de "{book.titulo}" fue aprobada. Nueva fecha de devolución: {due_date:%d/%m/%Y}.'
+        notification_type = "RENOVACION_APROBADA"
+    else:
+        renewal.estado = "RECHAZADA"
+        renewal.motivo_rechazo = reason
+        message = f'La renovación de "{book.titulo}" fue rechazada. {reason}'.strip()
+        notification_type = "RENOVACION_RECHAZADA"
+
+    renewal.save()
+    Notificacion.objects.create(
+        usuario=loan.usuario,
+        prestamo=loan,
+        tipo=notification_type,
+        mensaje=message,
+    )
+    return renewal
 
 
 @transaction.atomic
@@ -80,13 +131,35 @@ def return_loan(*, loan_id, librarian):
     if loan.estado != "ACTIVO":
         raise LibrarianLoanError("Solo se pueden devolver préstamos activos.")
 
+    book = Libro.objects.select_for_update().get(id=loan.ejemplar.libro_id)
     loan.bibliotecario = librarian
     loan.estado = "DEVUELTO"
     loan.fecha_devolucion_real = timezone.now()
     loan.ejemplar.estado = "DISPONIBLE"
     loan.ejemplar.save(update_fields=["estado"])
     loan.save(update_fields=["bibliotecario", "estado", "fecha_devolucion_real"])
+    _notify_next_waiting_user(book=book, library_name=loan.biblioteca.nombre)
     return loan
+
+
+def _notify_next_waiting_user(*, book, library_name):
+    waiting = (
+        ListaEspera.objects.select_for_update()
+        .select_related("usuario")
+        .filter(libro=book, estado="ACTIVA")
+        .order_by("fecha_inscripcion", "id")
+        .first()
+    )
+    if not waiting:
+        return
+
+    waiting.estado = "NOTIFICADA"
+    waiting.save(update_fields=["estado"])
+    Notificacion.objects.create(
+        usuario=waiting.usuario,
+        tipo="DISPONIBILIDAD",
+        mensaje=f'El libro "{book.titulo}" ya tiene un ejemplar disponible en {library_name}.',
+    )
 
 
 def _locked_loan(loan_id):

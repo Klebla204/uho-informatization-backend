@@ -55,6 +55,28 @@ class LoginTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["roles"], ["super_admin"])
 
+    def test_blocked_user_can_log_in_to_access_personal_account(self):
+        user = CustomUser.objects.create_user(
+            auth_uid="blocked-login",
+            email="blocked-login@example.com",
+            nombre="Blocked",
+            apellidos="User",
+            ci="01020304051",
+            tipo_usuario="ESTUDIANTE",
+            estado="BLOQUEADO",
+        )
+        user.set_password("clave-segura-123")
+        user.save()
+
+        response = self.client.post(
+            self.url,
+            {"username": "blocked-login", "password": "clave-segura-123"},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("access", response.json())
+
     def test_university_user_is_created_locally(self):
         with patch("apps.uho_auth.views.uho_login", return_value=UNIVERSITY_USER):
             response = self.client.post(self.url, {"username": "jperez", "password": "x"}, content_type="application/json")

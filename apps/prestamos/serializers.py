@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from apps.users.models import CustomUser
 
-from .models import Notificacion, Prestamo
+from .models import ListaEspera, Notificacion, Prestamo, RenovacionPrestamo
 from .vencimientos import days_until_due
 
 
@@ -23,6 +23,52 @@ class LoanRequestSerializer(serializers.Serializer):
     libro = serializers.UUIDField()
     biblioteca = serializers.UUIDField()
     observaciones = serializers.CharField(required=False, allow_blank=True)
+
+
+class WaitingListJoinSerializer(serializers.Serializer):
+    libro = serializers.UUIDField()
+
+
+class WaitingListEntrySerializer(serializers.ModelSerializer):
+    libro_titulo = serializers.CharField(source="libro.titulo", read_only=True)
+
+    class Meta:
+        model = ListaEspera
+        fields = ("id", "libro", "libro_titulo", "fecha_inscripcion", "estado")
+        read_only_fields = fields
+
+
+class RenewalRequestSerializer(serializers.ModelSerializer):
+    libro_titulo = serializers.CharField(source="prestamo.ejemplar.libro.titulo", read_only=True)
+    prestamo_id = serializers.UUIDField(source="prestamo.id", read_only=True)
+    usuario_nombre = serializers.SerializerMethodField()
+    biblioteca_nombre = serializers.CharField(source="prestamo.biblioteca.nombre", read_only=True)
+    codigo_ejemplar = serializers.CharField(source="prestamo.ejemplar.codigo_ejemplar", read_only=True)
+    fecha_devolucion_actual = serializers.DateTimeField(
+        source="prestamo.fecha_devolucion_pactada", read_only=True
+    )
+
+    class Meta:
+        model = RenovacionPrestamo
+        fields = (
+            "id",
+            "prestamo_id",
+            "libro_titulo",
+            "usuario_nombre",
+            "biblioteca_nombre",
+            "codigo_ejemplar",
+            "fecha_devolucion_actual",
+            "fecha_solicitud",
+            "fecha_procesamiento",
+            "fecha_devolucion_propuesta",
+            "estado",
+            "motivo_rechazo",
+        )
+        read_only_fields = fields
+
+    def get_usuario_nombre(self, renewal) -> str:
+        user = renewal.prestamo.usuario
+        return f"{user.nombre} {user.apellidos}".strip()
 
 
 class LoanResponseSerializer(serializers.ModelSerializer):
@@ -48,12 +94,16 @@ class LoanListSerializer(serializers.ModelSerializer):
     biblioteca_nombre = serializers.CharField(source="biblioteca.nombre", read_only=True)
     dias_restantes = serializers.SerializerMethodField()
     vencido = serializers.SerializerMethodField()
+    renovacion_pendiente = serializers.SerializerMethodField()
 
     def get_dias_restantes(self, loan) -> int | None:
         return days_until_due(loan) if loan.estado == "ACTIVO" else None
 
     def get_vencido(self, loan) -> bool:
         return loan.estado == "ACTIVO" and days_until_due(loan) < 0
+
+    def get_renovacion_pendiente(self, loan) -> bool:
+        return loan.renovaciones.filter(estado="PENDIENTE").exists()
 
     class Meta:
         model = Prestamo
@@ -72,6 +122,7 @@ class LoanListSerializer(serializers.ModelSerializer):
             "estado",
             "dias_restantes",
             "vencido",
+            "renovacion_pendiente",
             "observaciones",
         )
 

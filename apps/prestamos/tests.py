@@ -12,7 +12,8 @@ from apps.students.models import PerfilEstudiante
 from apps.users.models import CustomUser
 from apps.auditoria.models import LogsAuditoria
 
-from .models import Carnet, ListaEspera, Notificacion, Prestamo
+from .models import Carnet, ListaEspera, Notificacion, Prestamo, RenovacionPrestamo, Sancion
+from .vencimientos import due_windows
 
 
 class LoanModelTests(TestCase):
@@ -139,6 +140,21 @@ class OnlineLoanRequestApiTests(APITestCase):
         self.assertIsNone(response.json()["bibliotecario"])
         self.assertIsNone(response.json()["fecha_devolucion_pactada"])
 
+    def test_blocked_user_cannot_request_or_join_waiting_list(self):
+        self.user.estado = "BLOQUEADO"
+        self.user.save(update_fields=["estado"])
+        self.client.force_authenticate(user=self.user)
+
+        request = self.client.post(
+            reverse("loan_request"),
+            {"libro": str(self.book.id), "biblioteca": str(self.library.id)},
+            format="json",
+        )
+        waiting_list = self.client.post(reverse("waiting_list"), {"libro": str(self.book.id)}, format="json")
+
+        self.assertEqual(request.status_code, 409)
+        self.assertEqual(waiting_list.status_code, 409)
+
     def test_request_requires_library(self):
         self.client.force_authenticate(user=self.user)
 
@@ -203,6 +219,266 @@ class OnlineLoanRequestApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 409)
+
+    def test_waiting_list_requires_all_copies_to_be_unavailable_and_is_idempotent(self):
+        self.client.force_authenticate(user=self.user)
+        available = self.client.post(
+            reverse("waiting_list"), {"libro": str(self.book.id)}, format="json"
+        )
+        self.assertEqual(available.status_code, 409)
+
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        first = self.client.post(
+            reverse("waiting_list"), {"libro": str(self.book.id)}, format="json"
+        )
+        duplicate = self.client.post(
+            reverse("waiting_list"), {"libro": str(self.book.id)}, format="json"
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(duplicate.status_code, 200)
+        self.assertEqual(ListaEspera.objects.filter(usuario=self.user, libro=self.book, estado="ACTIVA").count(), 1)
+
+    def test_return_notifies_oldest_waiting_user_and_preserves_remaining_queue(self):
+        second_user = CustomUser.objects.create_user(
+            auth_uid="api-borrower-second",
+            email="api-borrower-second@example.com",
+            nombre="Luis",
+            apellidos="Soto",
+            ci="01020304064",
+            tipo_usuario="ESTUDIANTE",
+        )
+        waiting_first = ListaEspera.objects.create(usuario=self.user, libro=self.book)
+        waiting_second = ListaEspera.objects.create(usuario=second_user, libro=self.book)
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        loan = Prestamo.objects.create(
+            usuario=CustomUser.objects.create_user(
+                auth_uid="active-borrower",
+                email="active-borrower@example.com",
+                nombre="Eva",
+                apellidos="Rios",
+                ci="01020304065",
+                tipo_usuario="TRABAJADOR",
+            ),
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=7),
+            estado="ACTIVO",
+        )
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian, self.library)
+        self.client.force_authenticate(user=librarian)
+
+        response = self.client.post(reverse("loan_return", kwargs={"loan_id": str(loan.id)}))
+
+        self.assertEqual(response.status_code, 200)
+        waiting_first.refresh_from_db()
+        waiting_second.refresh_from_db()
+        self.assertEqual(waiting_first.estado, "NOTIFICADA")
+        self.assertEqual(waiting_second.estado, "ACTIVA")
+        notification = Notificacion.objects.get(usuario=self.user, tipo="DISPONIBILIDAD")
+        self.assertIn(self.book.titulo, notification.mensaje)
+        self.assertIn(self.library.nombre, notification.mensaje)
+        self.assertFalse(Notificacion.objects.filter(usuario=second_user).exists())
+
+    def test_waiting_list_is_private_and_requires_authentication(self):
+        anonymous_response = self.client.post(
+            reverse("waiting_list"), {"libro": str(self.book.id)}, format="json"
+        )
+        self.assertEqual(anonymous_response.status_code, 401)
+
+        waiting = ListaEspera.objects.create(usuario=self.user, libro=self.book)
+        other_user = CustomUser.objects.create_user(
+            auth_uid="private-waiting-user",
+            email="private-waiting@example.com",
+            nombre="Other",
+            apellidos="User",
+            ci="01020304066",
+            tipo_usuario="TRABAJADOR",
+        )
+        self.client.force_authenticate(user=other_user)
+        response = self.client.get(reverse("waiting_list"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), [])
+        self.assertNotIn(str(waiting.id), str(response.json()))
+
+    def test_user_can_request_renewal_for_own_active_loan(self):
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=3),
+            estado="ACTIVO",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(reverse("renewal_request", kwargs={"loan_id": str(loan.id)}), {}, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["estado"], "PENDIENTE")
+
+        loans = self.client.get(reverse("my_loans")).json()
+        self.assertTrue(next(item for item in loans if item["id"] == str(loan.id))["renovacion_pendiente"])
+
+    def test_renewal_is_blocked_by_pending_reservation_for_same_title(self):
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=3),
+            estado="ACTIVO",
+        )
+        reserved_copy = Ejemplar.objects.create(
+            libro=self.book,
+            biblioteca=self.library,
+            codigo_ejemplar="LOAN-RESERVED",
+            estado="PRESTADO",
+        )
+        other_user = CustomUser.objects.create_user(
+            auth_uid="renewal-reserver",
+            email="renewal-reserver@example.com",
+            nombre="Other",
+            apellidos="User",
+            ci="01020304067",
+            tipo_usuario="TRABAJADOR",
+        )
+        Prestamo.objects.create(
+            usuario=other_user,
+            ejemplar=reserved_copy,
+            biblioteca=self.library,
+            estado="PENDIENTE",
+        )
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.post(reverse("renewal_request", kwargs={"loan_id": str(loan.id)}), {}, format="json")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("reservas", response.json()["detail"])
+        self.assertFalse(RenovacionPrestamo.objects.exists())
+
+    def test_librarian_approves_renewal_and_updates_due_date(self):
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        old_due_date = timezone.now() + timedelta(days=3)
+        loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=old_due_date,
+            estado="ACTIVO",
+        )
+        self.client.force_authenticate(user=self.user)
+        requested = self.client.post(
+            reverse("renewal_request", kwargs={"loan_id": str(loan.id)}), {}, format="json"
+        )
+        renewal_id = requested.json()["id"]
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian, self.library)
+        self.client.force_authenticate(user=librarian)
+        new_due_date = timezone.now() + timedelta(days=17)
+
+        response = self.client.post(
+            reverse("renewal_decide", kwargs={"renewal_id": renewal_id}),
+            {"fecha_devolucion_pactada": new_due_date.isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["estado"], "APROBADA")
+        loan.refresh_from_db()
+        self.assertEqual(loan.fecha_devolucion_pactada, new_due_date)
+        self.assertTrue(Notificacion.objects.filter(usuario=self.user, tipo="RENOVACION_APROBADA").exists())
+
+    def test_librarian_rechecks_reservations_before_approving_renewal(self):
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=3),
+            estado="ACTIVO",
+        )
+        self.client.force_authenticate(user=self.user)
+        requested = self.client.post(
+            reverse("renewal_request", kwargs={"loan_id": str(loan.id)}), {}, format="json"
+        )
+        renewal_id = requested.json()["id"]
+        reserved_copy = Ejemplar.objects.create(
+            libro=self.book,
+            biblioteca=self.library,
+            codigo_ejemplar="LOAN-RESERVED-LATE",
+            estado="PRESTADO",
+        )
+        other_user = CustomUser.objects.create_user(
+            auth_uid="renewal-late-reserver",
+            email="renewal-late-reserver@example.com",
+            nombre="Other",
+            apellidos="User",
+            ci="01020304068",
+            tipo_usuario="TRABAJADOR",
+        )
+        Prestamo.objects.create(
+            usuario=other_user,
+            ejemplar=reserved_copy,
+            biblioteca=self.library,
+            estado="LISTO",
+        )
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian, self.library)
+        self.client.force_authenticate(user=librarian)
+
+        response = self.client.post(
+            reverse("renewal_decide", kwargs={"renewal_id": renewal_id}),
+            {"fecha_devolucion_pactada": (timezone.now() + timedelta(days=17)).isoformat()},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        loan.refresh_from_db()
+        self.assertEqual(loan.fecha_devolucion_pactada.date(), (timezone.now() + timedelta(days=3)).date())
+        self.assertEqual(RenovacionPrestamo.objects.get(id=renewal_id).estado, "PENDIENTE")
+
+    def test_librarian_can_reject_renewal_and_user_is_notified(self):
+        self.copy.estado = "PRESTADO"
+        self.copy.save(update_fields=["estado"])
+        loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=self.copy,
+            biblioteca=self.library,
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=3),
+            estado="ACTIVO",
+        )
+        self.client.force_authenticate(user=self.user)
+        requested = self.client.post(
+            reverse("renewal_request", kwargs={"loan_id": str(loan.id)}), {}, format="json"
+        )
+        librarian = CustomUser.objects.get(auth_uid="api-librarian")
+        self._grant_librarian_permission(librarian, self.library)
+        self.client.force_authenticate(user=librarian)
+
+        response = self.client.post(
+            reverse("renewal_decide", kwargs={"renewal_id": requested.json()["id"]}),
+            {"motivo": "Existe una reserva pendiente."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["estado"], "RECHAZADA")
+        self.assertTrue(Notificacion.objects.filter(usuario=self.user, tipo="RENOVACION_RECHAZADA").exists())
+
+    def test_renewal_queue_requires_librarian_permission(self):
+        self.client.force_authenticate(user=self.user)
+
+        response = self.client.get(reverse("renewal_queue"))
+
+        self.assertEqual(response.status_code, 403)
 
     def test_request_requires_complete_profile(self):
         self.user.telefono = ""
@@ -583,3 +859,91 @@ class DueDateNotificationTests(APITestCase):
     def test_regular_user_cannot_see_due_loans_panel_data(self):
         self.client.force_authenticate(user=self.user)
         self.assertEqual(self.client.get(reverse("due_loans")).status_code, 403)
+
+
+class SanctionApiTests(APITestCase):
+    def setUp(self):
+        DueDateNotificationTests.setUp(self)
+
+    def _loan(self, days):
+        copy = Ejemplar.objects.create(
+            libro=self.book,
+            biblioteca=self.library,
+            codigo_ejemplar=f"SANCTION-{Prestamo.objects.count() + 1}",
+            estado="PRESTADO",
+        )
+        return Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=copy,
+            biblioteca=self.library,
+            estado="ACTIVO",
+            fecha_devolucion_pactada=timezone.now() + timedelta(days=days),
+        )
+
+    def test_librarian_can_sanction_overdue_user_and_unblock_them(self):
+        loan = self._loan(-2)
+        self.client.force_authenticate(user=self.librarian)
+
+        listed = self.client.get(reverse("sanctions"))
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual([item["id"] for item in listed.json()["vencidos"]], [str(loan.id)])
+
+        created = self.client.post(reverse("sanctions"), {"prestamo": str(loan.id), "motivo": "Préstamo vencido"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.estado, "BLOQUEADO")
+        self.assertTrue(Sancion.objects.get(id=created.json()["id"]).activa)
+        self.assertTrue(Notificacion.objects.filter(usuario=self.user, tipo="SANCION").exists())
+
+        active = self.client.get(reverse("sanctions")).json()["sancionados"]
+        self.assertEqual(len(active), 1)
+        unblocked = self.client.post(reverse("sanction_unblock", kwargs={"sanction_id": created.json()["id"]}))
+        self.assertEqual(unblocked.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.estado, "ACTIVO")
+        self.assertFalse(Sancion.objects.get(id=created.json()["id"]).activa)
+        self.assertTrue(Notificacion.objects.filter(usuario=self.user, tipo="DESBLOQUEO").exists())
+
+    def test_cannot_sanction_non_overdue_loan_or_from_another_library(self):
+        loan = self._loan(2)
+        other_library = Biblioteca.objects.create(nombre="Tecnica", direccion="Calle 2", responsable=self.librarian)
+        other_copy = Ejemplar.objects.create(
+            libro=self.book, biblioteca=other_library, codigo_ejemplar="SANCTION-OTHER", estado="PRESTADO"
+        )
+        other_loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=other_copy,
+            biblioteca=other_library,
+            estado="ACTIVO",
+            fecha_devolucion_pactada=timezone.now() - timedelta(days=1),
+        )
+        self.client.force_authenticate(user=self.librarian)
+
+        not_due = self.client.post(reverse("sanctions"), {"prestamo": str(loan.id)}, format="json")
+        wrong_library = self.client.post(reverse("sanctions"), {"prestamo": str(other_loan.id)}, format="json")
+
+        self.assertEqual(not_due.status_code, 409)
+        self.assertEqual(wrong_library.status_code, 403)
+        self.assertFalse(Sancion.objects.exists())
+
+    def test_due_today_loan_is_not_yet_sanctionable(self):
+        start_today, _ = due_windows()
+        copy = Ejemplar.objects.create(
+            libro=self.book, biblioteca=self.library, codigo_ejemplar="SANCTION-TODAY", estado="PRESTADO"
+        )
+        loan = Prestamo.objects.create(
+            usuario=self.user,
+            ejemplar=copy,
+            biblioteca=self.library,
+            estado="ACTIVO",
+            fecha_devolucion_pactada=start_today,
+        )
+        self.client.force_authenticate(user=self.librarian)
+
+        response = self.client.post(reverse("sanctions"), {"prestamo": str(loan.id)}, format="json")
+
+        self.assertEqual(response.status_code, 409)
+
+    def test_regular_user_cannot_manage_sanctions(self):
+        self.client.force_authenticate(user=self.user)
+        self.assertEqual(self.client.get(reverse("sanctions")).status_code, 403)

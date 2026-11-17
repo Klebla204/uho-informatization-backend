@@ -9,6 +9,20 @@ class RejectLoanSerializer(serializers.Serializer):
     motivo = serializers.CharField(required=True, allow_blank=False)
 
 
+class RenewalDecisionSerializer(serializers.Serializer):
+    fecha_devolucion_pactada = serializers.DateTimeField(required=False)
+    motivo = serializers.CharField(required=False, allow_blank=True)
+
+    def validate(self, attrs):
+        has_due_date = "fecha_devolucion_pactada" in attrs
+        has_reason = bool(attrs.get("motivo", "").strip())
+        if has_due_date == has_reason:
+            raise serializers.ValidationError(
+                "Indica una nueva fecha para aprobar o un motivo para rechazar."
+            )
+        return attrs
+
+
 class CollectLoanSerializer(serializers.Serializer):
     fecha_devolucion_pactada = serializers.DateTimeField()
 

@@ -55,7 +55,7 @@ class LoginView(APIView):
                     tipo_usuario=_map_user_type(data["user_type"]),
                 )
 
-        if not user.is_active or user.estado != "ACTIVO":
+        if not user.is_active or user.estado == "INACTIVO":
             record_audit_event(request=request, action="LOGIN_FAILED", entity="login", user=user)
             return failed
 

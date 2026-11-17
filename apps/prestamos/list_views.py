@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from django.db.models import Q
+from django.utils import timezone
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema, inline_serializer, OpenApiParameter
 from rest_framework import serializers
@@ -15,6 +16,7 @@ from apps.rbac.drf_permissions import user_library_id
 from apps.users.models import CustomUser
 
 from .models import Notificacion, Prestamo
+from .models import Sancion
 from .serializers import (
     LoanListSerializer,
     NotificationSerializer,
@@ -125,6 +127,91 @@ class DueLoansView(APIView):
             "proximos": PendingLoanSerializer(upcoming.order_by("fecha_devolucion_pactada"), many=True).data,
             "vencidos": PendingLoanSerializer(overdue.order_by("fecha_devolucion_pactada"), many=True).data,
         })
+
+
+class SanctionsView(APIView):
+    authentication_classes = (JWTAuthentication,)
+    permission_classes = (IsAuthenticated, HasLoanManagementPermission)
+
+    def get(self, request):
+        assigned_library = user_library_id(request.user)
+        overdue = Prestamo.objects.filter(
+            estado="ACTIVO",
+            fecha_devolucion_pactada__lt=due_windows()[0],
+            usuario__is_active=True,
+        ).exclude(
+            usuario__estado="INACTIVO",
+        ).select_related("usuario", "ejemplar__libro", "biblioteca").exclude(
+            usuario__sanciones__activa=True
+        ).order_by("fecha_devolucion_pactada")
+        sanctions = Sancion.objects.filter(activa=True).select_related(
+            "usuario", "prestamo__ejemplar__libro", "prestamo__biblioteca"
+        ).order_by("fecha_sancion")
+        if assigned_library:
+            overdue = overdue.filter(biblioteca_id=assigned_library)
+            sanctions = sanctions.filter(prestamo__biblioteca_id=assigned_library)
+
+        def loan_data(loan):
+            return {
+                "id": str(loan.id),
+                "usuario_id": str(loan.usuario_id),
+                "usuario_nombre": str(loan.usuario),
+                "usuario_uid": loan.usuario.auth_uid,
+                "libro_titulo": loan.ejemplar.libro.titulo,
+                "biblioteca_nombre": loan.biblioteca.nombre,
+                "fecha_devolucion_pactada": loan.fecha_devolucion_pactada,
+                "dias_vencido": max(1, (timezone.localtime().date() - timezone.localtime(loan.fecha_devolucion_pactada).date()).days),
+            }
+
+        return Response({
+            "vencidos": [loan_data(loan) for loan in overdue],
+            "sancionados": [{
+                **loan_data(sanction.prestamo),
+                "sancion_id": str(sanction.id),
+                "fecha_sancion": sanction.fecha_sancion,
+                "motivo": sanction.motivo,
+            } for sanction in sanctions],
+        })
+
+    def post(self, request):
+        from .services import SanctionError, register_sanction
+
+        loan_id = request.data.get("prestamo")
+        loan = Prestamo.objects.filter(id=loan_id).select_related("biblioteca").first()
+        if loan is None:
+            return Response({"detail": "El préstamo no existe."}, status=404)
+        assigned_library = user_library_id(request.user)
+        if assigned_library and loan.biblioteca_id != assigned_library:
+            return Response({"detail": "Solo puedes gestionar sanciones de tu sede."}, status=403)
+        try:
+            sanction = register_sanction(
+                loan_id=loan.id,
+                librarian=request.user,
+                reason=str(request.data.get("motivo", ""))[:2000],
+            )
+        except SanctionError as error:
+            return Response({"detail": str(error)}, status=409)
+        return Response({"id": str(sanction.id), "usuario": str(sanction.usuario_id)}, status=201)
+
+
+class UnblockUserView(APIView):
+    authentication_classes = (JWTAuthentication,)
+    permission_classes = (IsAuthenticated, HasLoanManagementPermission)
+
+    def post(self, request, sanction_id):
+        from .services import SanctionError, unblock_user
+
+        sanction = Sancion.objects.filter(id=sanction_id, activa=True).select_related("prestamo__biblioteca").first()
+        if sanction is None:
+            return Response({"detail": "La sanción activa no existe."}, status=404)
+        assigned_library = user_library_id(request.user)
+        if assigned_library and sanction.prestamo.biblioteca_id != assigned_library:
+            return Response({"detail": "Solo puedes gestionar sanciones de tu sede."}, status=403)
+        try:
+            unblock_user(sanction_id=sanction.id, librarian=request.user)
+        except SanctionError as error:
+            return Response({"detail": str(error)}, status=409)
+        return Response({"detail": "Usuario desbloqueado."})
 
 
 class MyNotificationsView(ListAPIView):

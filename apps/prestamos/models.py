@@ -50,6 +50,63 @@ class Prestamo(models.Model):
         return f"{self.usuario} - {self.ejemplar}"
 
 
+class RenovacionPrestamo(models.Model):
+    STATUS_CHOICES = [
+        ("PENDIENTE", "Pendiente"),
+        ("APROBADA", "Aprobada"),
+        ("RECHAZADA", "Rechazada"),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    prestamo = models.ForeignKey(Prestamo, on_delete=models.PROTECT, related_name="renovaciones")
+    estado = models.CharField(max_length=12, choices=STATUS_CHOICES, default="PENDIENTE")
+    fecha_solicitud = models.DateTimeField(auto_now_add=True)
+    fecha_procesamiento = models.DateTimeField(null=True, blank=True)
+    fecha_devolucion_propuesta = models.DateTimeField(null=True, blank=True)
+    bibliotecario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="renovaciones_gestionadas",
+    )
+    motivo_rechazo = models.TextField(blank=True)
+
+    class Meta:
+        indexes = [models.Index(fields=["estado", "fecha_solicitud"])]
+
+    def __str__(self):
+        return f"Renovación {self.prestamo_id} - {self.estado}"
+
+
+class Sancion(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    usuario = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="sanciones")
+    prestamo = models.ForeignKey(Prestamo, on_delete=models.PROTECT, related_name="sanciones")
+    bibliotecario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="sanciones_registradas",
+    )
+    fecha_sancion = models.DateTimeField(auto_now_add=True)
+    fecha_desbloqueo = models.DateTimeField(null=True, blank=True)
+    motivo = models.TextField(blank=True)
+    activa = models.BooleanField(default=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["usuario"],
+                condition=models.Q(activa=True),
+                name="unique_active_user_sanction",
+            ),
+        ]
+        indexes = [models.Index(fields=["activa", "fecha_sancion"]) ]
+
+    def __str__(self):
+        return f"Sanción {self.usuario_id} - {'activa' if self.activa else 'cerrada'}"
+
+
 class ListaEspera(models.Model):
     STATUS_CHOICES = [
         ("ACTIVA", "Activa"),
